@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Webpage Generator Studio &bull; Multi-Site 10-Topic Blog Platform</title>
+  <meta name="description" content="Generate and host 10 comprehensive 1000-word blog pages with consistent layout, company logo, and brand color in hex format for multiple use cases.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/studio.css">
+</head>
+<body class="studio-body">
+
+  <!-- Header -->
+  <header class="studio-header">
+    <div class="studio-header-inner">
+      <a href="/" class="studio-brand">
+        <div class="studio-logo-icon">⚡</div>
+        <div class="studio-brand-text">
+          <span class="studio-brand-title">Webpage Generator</span>
+          <span class="studio-brand-badge">Multi-Use Case Portal</span>
+        </div>
+      </a>
+
+      <nav class="studio-nav" aria-label="Studio Navigation">
+        <button type="button" class="nav-tab-btn active" id="tab-generator-btn" onclick="scrollToSection('generator-section')">
+          <span>🛠️</span> Generator Studio
+        </button>
+        <button type="button" class="nav-tab-btn" id="tab-directory-btn" onclick="scrollToSection('directory-section')">
+          <span>🌐</span> Hosted Sites <span class="badge-count" id="header-sites-count">0</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="studio-main">
+    <!-- Hero Banner -->
+    <section class="studio-hero">
+      <div class="hero-pill">
+        <span class="hero-pill-sparkle">✨</span>
+        <span>AI-Powered Automated 10-Page Web Publication Platform</span>
+      </div>
+      <h1 class="hero-title">Create, Style, &amp; Host <span class="gradient-text">10 Dedicated Pages</span> for Any Brand</h1>
+      <p class="hero-description">Enter your company details, brand hex color, and up to 10 topics. Our engine writes well-formatted 1000+ word deep-dive posts for every single topic and hosts them with a consistent, branded design.</p>
+    </section>
+
+    <!-- Quick Presets & Multiple Use Cases Bar -->
+    <section class="presets-strip" aria-label="Multi-use-case quick presets">
+      <div class="presets-label">
+        <span>⚡ Quick Multi-Use Presets:</span>
+      </div>
+      <div class="preset-buttons-group">
+        <button type="button" class="btn-preset" onclick="loadPreset('saas')">
+          <span class="preset-dot" style="background:#6366f1;"></span>
+          <span>B2B Cloud SaaS</span>
+        </button>
+        <button type="button" class="btn-preset" onclick="loadPreset('fintech')">
+          <span class="preset-dot" style="background:#0284c7;"></span>
+          <span>Fintech &amp; Wealth</span>
+        </button>
+        <button type="button" class="btn-preset" onclick="loadPreset('cleantech')">
+          <span class="preset-dot" style="background:#10b981;"></span>
+          <span>CleanTech &amp; Solar</span>
+        </button>
+        <button type="button" class="btn-preset" onclick="loadPreset('health')">
+          <span class="preset-dot" style="background:#8b5cf6;"></span>
+          <span>Health &amp; Wellness</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Studio Grid: Form (Left) & Live Brand Preview (Right) -->
+    <div class="studio-grid-layout" id="generator-section">
+      <!-- Left: Input Form Panel -->
+      <section class="studio-panel">
+        <header class="panel-header">
+          <h2 class="panel-title">
+            <span class="step-num">1</span>
+            <span>Configure Brand &amp; 10 Topics</span>
+          </h2>
+          <p class="panel-subtitle">Provide your company details and enter up to 10 topics to be generated and hosted.</p>
+        </header>
+
+        <form id="generator-form" onsubmit="handleGenerateSubmit(event)">
+          <!-- Company Name -->
+          <div class="form-section">
+            <div class="section-label-row">
+              <label for="company-name" class="form-label">
+                <span>🏢 Company Name</span>
+                <span class="required-star">*</span>
+              </label>
+              <span class="label-hint">Shown in header, footer, &amp; citations</span>
+            </div>
+            <input 
+              type="text" 
+              id="company-name" 
+              name="companyName" 
+              class="form-control-input" 
+              placeholder="e.g. Apex AI Solutions" 
+              required 
+              oninput="updateLivePreview()" 
+            />
+          </div>
+
+          <!-- Logo Image -->
+          <div class="form-section">
+            <div class="section-label-row">
+              <label class="form-label">
+                <span>🎨 Logo Image</span>
+              </label>
+              <span class="label-hint">Upload file, enter URL, or auto-generate monogram</span>
+            </div>
+
+            <div class="logo-upload-box" id="logo-dropzone" onclick="document.getElementById('logo-file-input').click()">
+              <input type="file" id="logo-file-input" accept="image/*" style="display:none;" onchange="handleLogoFileSelect(event)" />
+              <img id="logo-preview-img" src="" alt="Logo Preview" class="logo-preview-img" style="display:none;" />
+              <div id="logo-dropzone-placeholder">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Click to upload brand logo or drag &amp; drop</div>
+                <div class="upload-subtext">Supports PNG, SVG, JPG, WebP (Max 5MB)</div>
+              </div>
+            </div>
+
+            <div class="logo-url-toggle">
+              <input 
+                type="url" 
+                id="logo-url-input" 
+                class="form-control-input" 
+                placeholder="Or paste direct logo image URL (e.g. https://...)" 
+                oninput="handleLogoUrlInput(this.value)" 
+              />
+            </div>
+          </div>
+
+          <!-- Brand Colour in Hex Format -->
+          <div class="form-section">
+            <div class="section-label-row">
+              <label for="brand-color-hex" class="form-label">
+                <span>🎯 Brand Colour in Hex Format</span>
+                <span class="required-star">*</span>
+              </label>
+              <span class="label-hint">Defines buttons, badges, accents &amp; highlights</span>
+            </div>
+
+            <div class="color-picker-wrapper">
+              <input 
+                type="color" 
+                id="brand-color-picker" 
+                class="color-input-native" 
+                value="#6366f1" 
+                oninput="handleColorPickerChange(this.value)" 
+              />
+              <input 
+                type="text" 
+                id="brand-color-hex" 
+                name="brandColor" 
+                class="hex-text-input" 
+                value="#6366F1" 
+                maxlength="7" 
+                required 
+                oninput="handleHexInputChange(this.value)" 
+              />
+              <span class="hex-swatch-badge" id="contrast-preview-badge" style="background:#6366f1; color:#ffffff;">
+                Preview
+              </span>
+            </div>
+
+            <!-- Designer Palette Swatches -->
+            <div class="palettes-label">Curated Designer Palettes:</div>
+            <div class="palette-swatches-grid" id="swatches-grid">
+              <button type="button" class="swatch-btn active" style="background:#6366F1;" title="Electric Indigo" onclick="selectPaletteColor('#6366F1')"></button>
+              <button type="button" class="swatch-btn" style="background:#0284C7;" title="Ocean Sapphire" onclick="selectPaletteColor('#0284C7')"></button>
+              <button type="button" class="swatch-btn" style="background:#10B981;" title="Emerald Pulse" onclick="selectPaletteColor('#10B981')"></button>
+              <button type="button" class="swatch-btn" style="background:#8B5CF6;" title="Cyber Violet" onclick="selectPaletteColor('#8B5CF6')"></button>
+              <button type="button" class="swatch-btn" style="background:#F97316;" title="Sunset Coral" onclick="selectPaletteColor('#F97316')"></button>
+              <button type="button" class="swatch-btn" style="background:#EC4899;" title="Rose Quartz" onclick="selectPaletteColor('#EC4899')"></button>
+              <button type="button" class="swatch-btn" style="background:#F59E0B;" title="Amber Gold" onclick="selectPaletteColor('#F59E0B')"></button>
+              <button type="button" class="swatch-btn" style="background:#14B8A6;" title="Titanium Teal" onclick="selectPaletteColor('#14B8A6')"></button>
+            </div>
+          </div>
+
+          <!-- Blog Topics (Up to 10 Separate Topics) -->
+          <div class="form-section">
+            <div class="section-label-row">
+              <label class="form-label">
+                <span>📝 Enter Up to 10 Blog Topics</span>
+                <span class="required-star">*</span>
+              </label>
+              <div class="topics-header-actions">
+                <button type="button" class="btn-suggest-topics" onclick="suggestTopicsForBrand()">
+                  <span>🤖</span> Auto-Suggest 10 Topics
+                </button>
+              </div>
+            </div>
+            <p class="label-hint" style="margin-bottom:12px;">Each topic will have its own dedicated hosted page with a 1000+ word structured article.</p>
+
+            <div class="topics-list-container" id="topics-list">
+              <!-- Dynamically populated 1..10 topic rows -->
+            </div>
+
+            <div class="topics-footer-row">
+              <button type="button" class="btn-add-topic" id="btn-add-topic" onclick="addTopicRow()">
+                <span>+ Add Another Topic</span>
+              </button>
+              <span class="topic-count-info" id="topics-counter">10 of 10 topics active</span>
+            </div>
+          </div>
+
+          <!-- Free LLM Engine Option -->
+          <div class="form-section">
+            <div class="section-label-row">
+              <label for="llm-provider-select" class="form-label">
+                <span>🧠 Article Generation Engine</span>
+              </label>
+              <span class="label-hint">1000+ words per page guaranteed</span>
+            </div>
+            <select id="llm-provider-select" class="form-control-input" onchange="toggleApiKeyField()">
+              <option value="builtin" selected>Free High-Depth Synthesis Engine (Fast, 1000+ words with tables &amp; checklists)</option>
+              <option value="gemini">Google Gemini Free API (Gemini 1.5 Flash)</option>
+            </select>
+            <div id="api-key-container" style="display:none; margin-top:12px;">
+              <input type="password" id="api-key-input" class="form-control-input" placeholder="Enter your free Gemini API Key (optional)" />
+              <span class="label-hint" style="margin-top:4px; display:block;">If left blank or unavailable, the system uses the built-in 1000+ word engine.</span>
+            </div>
+          </div>
+
+          <!-- Master Submit Button -->
+          <div class="submit-container">
+            <button type="submit" class="btn-generate-master" id="btn-generate-submit">
+              <span>🚀</span>
+              <span>Generate &amp; Host All 10 Pages Now</span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Right: Live Brand Identity Preview Panel -->
+      <aside class="preview-panel-sticky">
+        <div class="live-preview-box">
+          <div class="preview-bar-top">
+            <div class="preview-dots">
+              <span class="preview-dot preview-dot-red"></span>
+              <span class="preview-dot preview-dot-yellow"></span>
+              <span class="preview-dot preview-dot-green"></span>
+            </div>
+            <span class="preview-url-chip" id="preview-url-display">https://yourbrand.portal/sites/...</span>
+          </div>
+
+          <!-- Simulated Header -->
+          <div class="sim-header">
+            <div class="sim-brand">
+              <img id="sim-logo" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><rect width='32' height='32' rx='6' fill='%236366f1'/><text x='16' y='21' font-family='sans-serif' font-weight='800' font-size='14' fill='%23fff' text-anchor='middle'>CO</text></svg>" alt="Simulated Logo" class="sim-logo" />
+              <span class="sim-company-name" id="sim-company-name">Your Company</span>
+            </div>
+            <a href="#" class="sim-btn-cta" id="sim-btn-cta" style="background:#6366F1; color:#FFFFFF;">Subscribe</a>
+          </div>
+
+          <!-- Simulated Article Hero -->
+          <div class="sim-content">
+            <span class="sim-badge" id="sim-badge" style="background:rgba(99, 102, 241, 0.15); color:#6366F1;">
+              Topic 1 of 10 &bull; 1000+ Words
+            </span>
+            <h3 class="sim-h1" id="sim-sample-title">Modern Architectural Frameworks for Sustainable Growth</h3>
+            <div class="sim-meta">
+              <span>By Senior Research Lead</span> &bull; <span>~8 min read</span>
+            </div>
+
+            <div class="sim-box-callout" id="sim-callout" style="background:rgba(99, 102, 241, 0.08); border-left:4px solid #6366F1;">
+              <strong>Executive Summary:</strong> Consistent branded typography and rich multi-section format hosted seamlessly across all 10 pages.
+            </div>
+
+            <div class="sim-topics-counter">
+              <strong>10 Pages Hosted:</strong> Every topic will be accessible on its own dedicated route and styled with this exact brand palette.
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Multiple Use Cases / Hosted Sites Gallery -->
+    <section class="sites-directory-section" id="directory-section">
+      <div class="directory-header">
+        <div>
+          <h2 class="directory-title">🌐 Hosted Platforms &amp; Campaigns</h2>
+          <p class="directory-subtitle">Switch between multiple use cases, visit hosted sites, read the 10 blog posts, or download static bundles.</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="fetchAndRenderProjects()">
+          <span>🔄 Refresh Directory</span>
+        </button>
+      </div>
+
+      <div class="sites-grid" id="sites-grid">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Animated Generation Modal -->
+  <div class="modal-backdrop" id="generation-modal" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-icon-spinner" id="modal-spinner"></div>
+      <h3 class="modal-title" id="modal-title">Generating 10 Hosted Pages...</h3>
+      <p class="modal-status-text" id="modal-status">Writing 1000-word deep-dive articles and assembling layout...</p>
+
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-bar-fill"></div>
+      </div>
+
+      <ul class="progress-steps-list" id="progress-steps-list">
+        <!-- Step items injected by JS -->
+      </ul>
+
+      <div class="modal-success-actions" id="modal-success-actions">
+        <a href="#" target="_blank" class="btn btn-brand" id="modal-view-hub-btn">
+          <span>🚀</span> Open Hosted Blog Hub
+        </a>
+        <button type="button" class="btn btn-outline" onclick="closeGenerationModal()">
+          Done &amp; Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/studio.js"></script>
+</body>
+</html>
