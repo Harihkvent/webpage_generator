@@ -1,10 +1,12 @@
 /**
  * siteStorage.js
  * Persistent project database & site manager with ownership & authorization support
- * Compatible with local disk and Vercel Serverless environment (/tmp)
+ * Supports MongoDB Atlas with automatic fallback to local disk and /tmp for serverless
  */
 const fs = require('fs');
 const path = require('path');
+const { connectDB, isDbConnected } = require('./db');
+const Project = require('../models/Project');
 
 // Bundled seed database location
 const BUNDLED_DATA_FILE = path.join(__dirname, '..', 'data', 'projects.json');
@@ -16,8 +18,9 @@ const DATA_FILE = process.env.VERCEL
 
 // In-memory cache fallback
 let memoryProjects = null;
+let migratedProjects = false;
 
-// Ensure data folder and file exists
+// Ensure local file data folder and file exists
 function ensureStorage() {
   try {
     const dataDir = path.dirname(DATA_FILE);
@@ -26,7 +29,6 @@ function ensureStorage() {
     }
     if (!fs.existsSync(DATA_FILE)) {
       if (fs.existsSync(BUNDLED_DATA_FILE)) {
-        // Copy bundled initial data
         const initial = fs.readFileSync(BUNDLED_DATA_FILE, 'utf-8');
         fs.writeFileSync(DATA_FILE, initial, 'utf-8');
       } else {
@@ -36,6 +38,52 @@ function ensureStorage() {
   } catch (err) {
     console.warn('Storage warning (using in-memory fallback):', err.message);
     if (!memoryProjects) memoryProjects = [];
+  }
+}
+
+// Read from fallback JSON file
+function getFileProjects() {
+  ensureStorage();
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.error('Error reading projects.json:', err.message);
+  }
+  return memoryProjects || [];
+}
+
+// Save to fallback JSON file
+function saveFileProjects(projects) {
+  ensureStorage();
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(projects, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Could not write to disk, saving to memory:', err.message);
+    memoryProjects = projects;
+  }
+}
+
+// Migrate initial seed projects to MongoDB Atlas if database is empty
+async function syncFromLocalIfEmpty() {
+  if (migratedProjects) return;
+  try {
+    if (isDbConnected()) {
+      const count = await Project.countDocuments();
+      if (count === 0) {
+        const fileProjects = getFileProjects();
+        if (fileProjects.length > 0) {
+          console.log(`[MongoDB] Migrating ${fileProjects.length} existing projects from JSON to MongoDB Atlas...`);
+          await Project.insertMany(fileProjects, { ordered: false });
+          console.log('[MongoDB] Migration of projects complete!');
+        }
+      }
+      migratedProjects = true;
+    }
+  } catch (err) {
+    console.warn('[MongoDB] Sync projects warning:', err.message);
   }
 }
 
@@ -123,34 +171,71 @@ function generateAuthorAvatarSvg(authorName, brandColor) {
 }
 
 // Read all projects
-function getAllProjects() {
-  ensureStorage();
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-      return JSON.parse(raw);
+async function getAllProjects() {
+  await connectDB();
+  await syncFromLocalIfEmpty();
+
+  if (isDbConnected()) {
+    try {
+      const docs = await Project.find({}).sort({ updatedAt: -1, createdAt: -1 }).lean();
+      return docs.map(doc => {
+        const { _id, __v, ...proj } = doc;
+        return proj;
+      });
+    } catch (err) {
+      console.warn('[MongoDB] getAllProjects fallback to file:', err.message);
     }
-  } catch (err) {
-    console.error('Error reading projects.json:', err.message);
   }
-  return memoryProjects || [];
+
+  return getFileProjects();
 }
 
 // Get single project
-function getProjectById(id) {
-  const projects = getAllProjects();
+async function getProjectById(id) {
+  if (!id) return null;
+  await connectDB();
+  await syncFromLocalIfEmpty();
+
+  if (isDbConnected()) {
+    try {
+      const doc = await Project.findOne({ id }).lean();
+      if (doc) {
+        const { _id, __v, ...proj } = doc;
+        return proj;
+      }
+      return null;
+    } catch (err) {
+      console.warn('[MongoDB] getProjectById fallback to file:', err.message);
+    }
+  }
+
+  const projects = getFileProjects();
   return projects.find(p => p.id === id) || null;
 }
 
 // Get projects belonging to a specific user
-function getProjectsByOwner(ownerId) {
-  const projects = getAllProjects();
+async function getProjectsByOwner(ownerId) {
   if (!ownerId) return [];
+  await connectDB();
+  await syncFromLocalIfEmpty();
+
+  if (isDbConnected()) {
+    try {
+      const docs = await Project.find({ ownerId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+      return docs.map(doc => {
+        const { _id, __v, ...proj } = doc;
+        return proj;
+      });
+    } catch (err) {
+      console.warn('[MongoDB] getProjectsByOwner fallback to file:', err.message);
+    }
+  }
+
+  const projects = getFileProjects();
   return projects.filter(p => p.ownerId === ownerId);
 }
 
-// Save or update project
-
+// Sanitize SVG inputs
 function toBase64SvgDataUri(val) {
   if (typeof val === 'string' && (val.startsWith('data:image/svg+xml;utf8,') || (val.startsWith('data:image/svg+xml') && val.includes('<svg')))) {
     const rawSvg = val.replace(/^data:image\/svg\+xml(;utf8)?,?/, '');
@@ -175,59 +260,94 @@ function sanitizeProjectData(project) {
   return project;
 }
 
-function saveProject(project) {
+// Save or update project
+async function saveProject(project) {
   project = sanitizeProjectData(project);
-  ensureStorage();
-  const projects = getAllProjects();
-  const existingIdx = projects.findIndex(p => p.id === project.id);
+  await connectDB();
 
+  project.updatedAt = new Date().toISOString();
+  if (!project.createdAt) {
+    project.createdAt = project.updatedAt;
+  }
+
+  if (isDbConnected()) {
+    try {
+      await Project.findOneAndUpdate(
+        { id: project.id },
+        { $set: project },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      // Backup to local file storage
+      const fileProjects = getFileProjects();
+      const existingIdx = fileProjects.findIndex(p => p.id === project.id);
+      if (existingIdx >= 0) {
+        fileProjects[existingIdx] = project;
+      } else {
+        fileProjects.unshift(project);
+      }
+      saveFileProjects(fileProjects);
+      return project;
+    } catch (err) {
+      console.warn('[MongoDB] saveProject error (saving to local file):', err.message);
+    }
+  }
+
+  // Fallback to local file storage
+  const fileProjects = getFileProjects();
+  const existingIdx = fileProjects.findIndex(p => p.id === project.id);
   if (existingIdx >= 0) {
-    projects[existingIdx] = {
-      ...projects[existingIdx],
+    fileProjects[existingIdx] = {
+      ...fileProjects[existingIdx],
       ...project,
       updatedAt: new Date().toISOString()
     };
   } else {
-    projects.unshift({
-      ...project,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    fileProjects.unshift(project);
   }
-
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(projects, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('Could not write to disk, saving to memory:', err.message);
-    memoryProjects = projects;
-  }
-
+  saveFileProjects(fileProjects);
   return project;
 }
 
 // Delete project with owner authorization check
-function deleteProject(id, requestingUserId = null) {
-  ensureStorage();
-  let projects = getAllProjects();
-  const project = projects.find(p => p.id === id);
+async function deleteProject(id, requestingUserId = null) {
+  await connectDB();
 
+  if (isDbConnected()) {
+    try {
+      const project = await Project.findOne({ id });
+      if (!project) {
+        return { success: false, error: 'Project not found' };
+      }
+
+      if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId) {
+        return { success: false, error: 'Unauthorized: You can only delete your own hosted sites.' };
+      }
+
+      await Project.deleteOne({ id });
+
+      // Keep local file in sync
+      const fileProjects = getFileProjects().filter(p => p.id !== id);
+      saveFileProjects(fileProjects);
+
+      return { success: true };
+    } catch (err) {
+      console.warn('[MongoDB] deleteProject error (falling back to file):', err.message);
+    }
+  }
+
+  // Fallback to local file storage
+  let fileProjects = getFileProjects();
+  const project = fileProjects.find(p => p.id === id);
   if (!project) {
     return { success: false, error: 'Project not found' };
   }
 
-  // Authorization check: if project has an owner, only the owner can delete it
   if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId) {
     return { success: false, error: 'Unauthorized: You can only delete your own hosted sites.' };
   }
 
-  projects = projects.filter(p => p.id !== id);
-
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(projects, null, 2), 'utf-8');
-  } catch (err) {
-    memoryProjects = projects;
-  }
-
+  fileProjects = fileProjects.filter(p => p.id !== id);
+  saveFileProjects(fileProjects);
   return { success: true };
 }
 

@@ -6,6 +6,7 @@
  * - Authentication & Authorization (Only owners can delete/modify their sites)
  * - Authentic Author Management (Zero fake people data)
  * - Zero Emojis (Clean SVG vector icons throughout)
+ * - MongoDB Atlas integration with local file fallback
  * - Vercel Serverless Ready
  */
 
@@ -16,6 +17,8 @@ const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
 const archiver = require('archiver');
+
+const { connectDB } = require('./services/db');
 
 const {
   getAllProjects,
@@ -48,6 +51,11 @@ const {
 const app = express();
 const PORT = process.env.PORT || 5050;
 
+// Initialize MongoDB connection pool
+connectDB().catch(err => {
+  console.warn('[MongoDB] Initial connection notice:', err.message);
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
@@ -61,12 +69,16 @@ app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 // -----------------------------------------------------------------------------
 // Auth Middleware
 // -----------------------------------------------------------------------------
-function extractUser(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7).trim();
-    req.user = getUserByToken(token);
-  } else {
+async function extractUser(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7).trim();
+      req.user = await getUserByToken(token);
+    } else {
+      req.user = null;
+    }
+  } catch (err) {
     req.user = null;
   }
   next();
@@ -86,10 +98,10 @@ app.get('/', (req, res) => {
 // -----------------------------------------------------------------------------
 
 // Sign up new user
-app.post('/api/auth/signup', (req, res) => {
+app.post('/api/auth/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    const result = registerUser({ name, email, password });
+    const result = await registerUser({ name, email, password });
     res.status(201).json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -97,10 +109,10 @@ app.post('/api/auth/signup', (req, res) => {
 });
 
 // Log in existing user
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const result = loginUser(email, password);
+    const result = await loginUser(email, password);
     res.json(result);
   } catch (err) {
     res.status(401).json({ error: err.message });
@@ -116,12 +128,16 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 // Log out user
-app.post('/api/auth/logout', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    logoutUser(authHeader.substring(7).trim());
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      await logoutUser(authHeader.substring(7).trim());
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ success: true });
 });
 
 // -----------------------------------------------------------------------------
@@ -130,6 +146,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/config', (req, res) => {
   res.json({
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+    hasMongoDB: Boolean(process.env.MONGODB_URI),
     isVercel: Boolean(process.env.VERCEL)
   });
 });
@@ -139,15 +156,16 @@ app.get('/api/config', (req, res) => {
 // -----------------------------------------------------------------------------
 
 // List all projects (supports ?mine=true filter and attaches isOwner flag)
-app.get('/api/projects', (req, res) => {
+app.get('/api/projects', async (req, res) => {
   try {
     const onlyMine = req.query.mine === 'true';
     const currentUserId = req.user ? req.user.id : null;
 
-    let projects = getAllProjects();
-
+    let projects;
     if (onlyMine && currentUserId) {
-      projects = projects.filter(p => p.ownerId === currentUserId);
+      projects = await getProjectsByOwner(currentUserId);
+    } else {
+      projects = await getAllProjects();
     }
 
     // Attach ownership status relative to requesting user
@@ -163,9 +181,9 @@ app.get('/api/projects', (req, res) => {
 });
 
 // Get single project
-app.get('/api/projects/:id', (req, res) => {
+app.get('/api/projects/:id', async (req, res) => {
   try {
-    const project = getProjectById(req.params.id);
+    const project = await getProjectById(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const currentUserId = req.user ? req.user.id : null;
@@ -269,7 +287,7 @@ app.post('/api/projects', async (req, res) => {
       createdAt: new Date().toISOString()
     };
 
-    saveProject(newProject);
+    await saveProject(newProject);
 
     res.status(201).json(newProject);
   } catch (err) {
@@ -279,10 +297,10 @@ app.post('/api/projects', async (req, res) => {
 });
 
 // Delete a project (enforces authorization: only the owner can delete their site)
-app.delete('/api/projects/:id', (req, res) => {
+app.delete('/api/projects/:id', async (req, res) => {
   try {
     const currentUserId = req.user ? req.user.id : null;
-    const project = getProjectById(req.params.id);
+    const project = await getProjectById(req.params.id);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -297,7 +315,7 @@ app.delete('/api/projects/:id', (req, res) => {
       }
     }
 
-    const result = deleteProject(req.params.id, currentUserId);
+    const result = await deleteProject(req.params.id, currentUserId);
     if (!result.success) {
       return res.status(403).json({ error: result.error || 'Failed to delete' });
     }
@@ -309,9 +327,9 @@ app.delete('/api/projects/:id', (req, res) => {
 });
 
 // Export as standalone static ZIP (All 10 pages + hub + CSS)
-app.get('/api/projects/:id/export', (req, res) => {
+app.get('/api/projects/:id/export', async (req, res) => {
   try {
-    const project = getProjectById(req.params.id);
+    const project = await getProjectById(req.params.id);
     if (!project) return res.status(404).send('Project not found');
 
     res.attachment(`${project.id}-standalone-website.zip`);
@@ -351,9 +369,9 @@ app.get('/api/projects/:id/export', (req, res) => {
 // -----------------------------------------------------------------------------
 
 // 1. Hosted Brand Publication Hub (Lists all 10 blog topics)
-app.get('/sites/:siteId', (req, res) => {
+app.get('/sites/:siteId', async (req, res) => {
   try {
-    const project = getProjectById(req.params.siteId);
+    const project = await getProjectById(req.params.siteId);
     if (!project) {
       return res.status(404).send(`
         <!DOCTYPE html>
@@ -375,14 +393,14 @@ app.get('/sites/:siteId', (req, res) => {
 });
 
 // 2. Individual Dedicated 1000-Word Hosted Blog Post
-app.get('/sites/:siteId/blog/:slug', (req, res) => {
+app.get('/sites/:siteId/blog/:slug', async (req, res) => {
   try {
-    const project = getProjectById(req.params.siteId);
+    const project = await getProjectById(req.params.siteId);
     if (!project) {
       return res.status(404).send('Site Not Found');
     }
 
-    const article = project.articles.find(a => a.slug === req.params.slug);
+    const article = (project.articles || []).find(a => a.slug === req.params.slug);
     if (!article) {
       return res.status(404).send(`
         <!DOCTYPE html>
@@ -407,8 +425,8 @@ app.get('/sites/:siteId/blog/:slug', (req, res) => {
 // Seed Initial Demo Project & User if Database is empty
 // -----------------------------------------------------------------------------
 async function seedDefaultProjectIfEmpty() {
-  seedDemoUserIfEmpty();
-  const existing = getAllProjects();
+  await seedDemoUserIfEmpty();
+  const existing = await getAllProjects();
   if (existing.length === 0) {
     console.log('Seeding initial demo campaign: Apex Cloud Systems (10 hosted pages)...');
     const demoTopics = [
@@ -462,7 +480,7 @@ async function seedDefaultProjectIfEmpty() {
       createdAt: new Date().toISOString()
     };
 
-    saveProject(demoProject);
+    await saveProject(demoProject);
     console.log('Seeded initial demo campaign successfully!');
   }
 }
@@ -475,6 +493,7 @@ if (!process.env.VERCEL) {
     console.log(` - Studio Dashboard:   http://localhost:${PORT}`);
     console.log(` - Live Demo Campaign: http://localhost:${PORT}/sites/site-apex-cloud-systems-seed`);
     console.log(` - Gemini API Key:     ${Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'Configured in .env' : 'Not set (using built-in 1000-word engine)'}`);
+    console.log(` - Database:           ${Boolean(process.env.MONGODB_URI) ? 'MongoDB Atlas (Connected)' : 'Local File Fallback (/data)'}`);
     console.log(` - Auth System:        Enabled (Email/Password, Tokens & Ownership)`);
     console.log(`=======================================================`);
     await seedDefaultProjectIfEmpty();
