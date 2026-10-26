@@ -5,7 +5,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const archiver = require('archiver');
 
 // Bundled seed database location
 const BUNDLED_DATA_FILE = path.join(__dirname, '..', 'data', 'projects.json');
