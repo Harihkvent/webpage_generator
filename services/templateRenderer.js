@@ -87,7 +87,7 @@ function renderHeader(project, currentSlug = '') {
     <header class="site-header">
       <div class="header-container">
         <a href="${hubUrl}" class="brand-identity">
-          <img src="${safeLogoUrl(project.logoUrl, company, brandColor)}" alt="${company} Logo" class="brand-logo" />
+          <img src="${safeLogoUrl(project.logoUrl, company, project.brandColor || '#6366F1')}" alt="${company} Logo" class="brand-logo" />
           <span class="brand-name">${company}</span>
         </a>
         <nav class="site-nav" aria-label="Main Navigation">
@@ -121,7 +121,7 @@ function renderFooter(project) {
         <div class="footer-grid">
           <div class="footer-brand-col">
             <div class="footer-logo-row">
-              <img src="${safeLogoUrl(project.logoUrl, company, brandColor)}" alt="${company} Logo" class="footer-logo" />
+              <img src="${safeLogoUrl(project.logoUrl, company, project.brandColor || '#6366F1')}" alt="${company} Logo" class="footer-logo" />
               <span class="footer-company-name">${company}</span>
             </div>
             <p class="footer-tagline">Authoritative intelligence, strategic benchmarks, and industry perspectives curated by the ${company} research team.</p>
@@ -275,7 +275,7 @@ function renderHubPage(project) {
             </h2>
             <p class="featured-excerpt">${escapeHtml(featured.excerpt)}</p>
             <div class="featured-author-row">
-              <img src="${safeAvatarUrl(featured.author?.avatar, featured.author?.name, brandColor)}" alt="${escapeHtml(featured.author?.name)}" class="author-avatar-sm" />
+              <img src="${safeAvatarUrl(featured.author?.avatar, featured.author?.name, project.brandColor || '#6366F1')}" alt="${escapeHtml(featured.author?.name)}" class="author-avatar-sm" />
               <div class="author-info">
                 <strong>${escapeHtml(featured.author?.name)}</strong>
                 <span>${escapeHtml(featured.author?.role)}</span>
@@ -311,7 +311,7 @@ function renderHubPage(project) {
             <p class="card-excerpt">${escapeHtml(article.excerpt)}</p>
             <div class="card-footer">
               <div class="card-author">
-                <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, brandColor)}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-xs" />
+                <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, project.brandColor || '#6366F1')}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-xs" />
                 <span class="author-name-xs">${escapeHtml(article.author?.name)}</span>
               </div>
               <a href="/sites/${project.id}/blog/${article.slug}" class="card-read-link">Read Full &rarr;</a>
@@ -447,7 +447,7 @@ function renderArticlePage(project, article) {
 
           <div class="author-meta-block">
             <div class="author-details">
-              <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, brandColor)}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-md" />
+              <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, project.brandColor || '#6366F1')}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-md" />
               <div>
                 <div class="author-name">${escapeHtml(article.author?.name)}</div>
                 <div class="author-title">${escapeHtml(article.author?.role)} &bull; ${company}</div>
@@ -492,7 +492,7 @@ function renderArticlePage(project, article) {
         <!-- Author Profile Card (Authentic user data) -->
         <div class="sidebar-widget author-card">
           <div class="widget-header">
-            <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, brandColor)}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-md" />
+            <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, project.brandColor || '#6366F1')}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-md" />
             <div>
               <h4 class="widget-company">${escapeHtml(article.author?.name)}</h4>
               <span class="widget-meta">${escapeHtml(article.author?.role)}</span>
@@ -504,7 +504,7 @@ function renderArticlePage(project, article) {
         <!-- Quick Stats Widget -->
         <div class="sidebar-widget brand-card">
           <div class="widget-header">
-            <img src="${safeLogoUrl(project.logoUrl, company, brandColor)}" alt="${company}" class="widget-logo" />
+            <img src="${safeLogoUrl(project.logoUrl, company, project.brandColor || '#6366F1')}" alt="${company}" class="widget-logo" />
             <div>
               <h4 class="widget-company">${company}</h4>
               <span class="widget-meta">Hosted Blog Platform</span>
