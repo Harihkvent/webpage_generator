@@ -3,15 +3,47 @@
  * Renders HTML for:
  * 1. Branded Blog Hub (/sites/:siteId)
  * 2. Dedicated 1000-Word Hosted Blog Post (/sites/:siteId/blog/:slug)
- * Injects dynamic brand styling, logo, and consistent header/footer
+ * Uses clean SVG icons (no emojis), authentic author profiles, and consistent brand styling
  */
 
 const { getContrastColor, adjustBrightness } = require('./siteStorage');
 
 // Helper to escape HTML characters
+
+/**
+ * Safely encode and sanitize SVG Data URIs to Base64 to prevent attribute quote escaping bugs
+ */
+function safeAvatarUrl(url, name = 'Author', color = '#6366F1') {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    const initials = (name || 'ED').split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase() || 'ED';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="38" fill="' + color + '" stroke="#ffffff" stroke-width="2"/><text x="40" y="49" font-family="-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif" font-weight="700" font-size="26" fill="#ffffff" text-anchor="middle">' + initials + '</text></svg>';
+    return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
+  }
+  const trimmed = url.trim();
+  if (trimmed.startsWith('data:image/svg+xml;utf8,') || (trimmed.startsWith('data:image/svg+xml') && trimmed.includes('<svg'))) {
+    const svgContent = trimmed.replace(/^data:image\/svg\+xml(;utf8)?,?/, '');
+    return 'data:image/svg+xml;base64,' + Buffer.from(svgContent, 'utf8').toString('base64');
+  }
+  return trimmed;
+}
+
+function safeLogoUrl(url, company = 'Company', color = '#6366F1') {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    const initials = (company || 'CO').split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase() || 'CO';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" rx="28" fill="' + color + '"/><text x="60" y="73" font-family="-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif" font-weight="800" font-size="44" fill="#ffffff" text-anchor="middle">' + initials + '</text></svg>';
+    return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
+  }
+  const trimmed = url.trim();
+  if (trimmed.startsWith('data:image/svg+xml;utf8,') || (trimmed.startsWith('data:image/svg+xml') && trimmed.includes('<svg'))) {
+    const svgContent = trimmed.replace(/^data:image\/svg\+xml(;utf8)?,?/, '');
+    return 'data:image/svg+xml;base64,' + Buffer.from(svgContent, 'utf8').toString('base64');
+  }
+  return trimmed;
+}
+
 function escapeHtml(str) {
   if (!str) return '';
-  return str
+  return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -26,9 +58,9 @@ function getBrandCssVariables(brandColor) {
   const contrast = getContrastColor(brandColor);
   const hoverColor = adjustBrightness(brandColor, -15);
   const lightColor = adjustBrightness(brandColor, 40);
-  const softBg = `${brandColor}12`; // 7% opacity
-  const borderTint = `${brandColor}33`; // 20% opacity
-  const shadowTint = `${brandColor}40`; // 25% opacity
+  const softBg = `${brandColor}12`;
+  const borderTint = `${brandColor}33`;
+  const shadowTint = `${brandColor}40`;
 
   return `
     :root {
@@ -44,7 +76,7 @@ function getBrandCssVariables(brandColor) {
 }
 
 /**
- * Shared Header Component
+ * Shared Header Component (Zero emojis, modern SVG icons)
  */
 function renderHeader(project, currentSlug = '') {
   const logo = project.logoUrl;
@@ -55,14 +87,17 @@ function renderHeader(project, currentSlug = '') {
     <header class="site-header">
       <div class="header-container">
         <a href="${hubUrl}" class="brand-identity">
-          <img src="${logo}" alt="${company} Logo" class="brand-logo" />
+          <img src="${safeLogoUrl(project.logoUrl, company, brandColor)}" alt="${company} Logo" class="brand-logo" />
           <span class="brand-name">${company}</span>
         </a>
         <nav class="site-nav" aria-label="Main Navigation">
           <a href="${hubUrl}" class="nav-link ${!currentSlug ? 'active' : ''}">All Articles</a>
           <a href="${hubUrl}#featured" class="nav-link">Featured</a>
           <a href="${hubUrl}#about" class="nav-link">About ${company}</a>
-          <a href="/#create" class="nav-link nav-studio-link" title="Open Webpage Generator Studio">⚡ Studio</a>
+          <a href="/" class="nav-link nav-studio-link" title="Open Webpage Generator Studio">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span>Studio</span>
+          </a>
         </nav>
         <div class="header-actions">
           <a href="#subscribe" class="btn btn-brand btn-sm">Subscribe</a>
@@ -86,7 +121,7 @@ function renderFooter(project) {
         <div class="footer-grid">
           <div class="footer-brand-col">
             <div class="footer-logo-row">
-              <img src="${project.logoUrl}" alt="${company} Logo" class="footer-logo" />
+              <img src="${safeLogoUrl(project.logoUrl, company, brandColor)}" alt="${company} Logo" class="footer-logo" />
               <span class="footer-company-name">${company}</span>
             </div>
             <p class="footer-tagline">Authoritative intelligence, strategic benchmarks, and industry perspectives curated by the ${company} research team.</p>
@@ -118,8 +153,8 @@ function renderFooter(project) {
             <h4>Stay Updated</h4>
             <p>Get our latest deep-dive research delivered straight to your inbox.</p>
             <form class="footer-newsletter-form" onsubmit="event.preventDefault(); alert('Thank you for subscribing to ${company} updates!'); this.reset();">
-              <input type="email" placeholder="Enter your work email" required class="form-input" />
-              <button type="submit" class="btn btn-brand">Join 12,000+ Readers</button>
+              <input type="email" placeholder="Enter your email" required class="form-input" />
+              <button type="submit" class="btn btn-brand">Join Readers</button>
             </form>
           </div>
         </div>
@@ -128,7 +163,7 @@ function renderFooter(project) {
           <p>&copy; ${new Date().getFullYear()} ${company}. All rights reserved.</p>
           <div class="footer-sub-links">
             <a href="${hubUrl}">Home Hub</a>
-            <a href="/#create">Create Another Website</a>
+            <a href="/">Create Another Website</a>
             <a href="javascript:window.scrollTo({top:0, behavior:'smooth'})">Back to Top &uarr;</a>
           </div>
         </div>
@@ -144,7 +179,6 @@ function renderHubPage(project) {
   const company = escapeHtml(project.companyName);
   const articles = project.articles || [];
   const featured = articles[0] || {};
-  const remaining = articles.slice(1);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -164,6 +198,26 @@ function renderHubPage(project) {
 <body class="blog-theme-body">
 
   ${renderHeader(project)}
+
+  <!-- Owner Management Banner (Activated if user owns this site) -->
+  <div id="owner-controls-bar" class="owner-controls-bar" style="display:none;" data-site-id="${project.id}">
+    <div class="owner-controls-inner">
+      <div class="owner-badge">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>You Own This Hosted Site</span>
+      </div>
+      <div class="owner-actions">
+        <a href="/api/projects/${project.id}/export" class="btn btn-outline btn-sm">
+          <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export ZIP
+        </a>
+        <button type="button" class="btn btn-outline btn-sm btn-delete-owner" onclick="handleOwnerDeleteSite('${project.id}')">
+          <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Delete Site
+        </button>
+      </div>
+    </div>
+  </div>
 
   <main class="hub-main-container">
     <!-- Hub Hero Section -->
@@ -195,7 +249,9 @@ function renderHubPage(project) {
 
         <div class="hub-search-container">
           <input type="text" id="topic-search-input" placeholder="Filter through all 10 topics..." class="hub-search-input" onkeyup="filterArticles()" />
-          <span class="search-icon">🔍</span>
+          <span class="search-icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </span>
         </div>
       </div>
     </section>
@@ -219,7 +275,7 @@ function renderHubPage(project) {
             </h2>
             <p class="featured-excerpt">${escapeHtml(featured.excerpt)}</p>
             <div class="featured-author-row">
-              <img src="${featured.author?.avatar}" alt="${escapeHtml(featured.author?.name)}" class="author-avatar-sm" />
+              <img src="${safeAvatarUrl(featured.author?.avatar, featured.author?.name, brandColor)}" alt="${escapeHtml(featured.author?.name)}" class="author-avatar-sm" />
               <div class="author-info">
                 <strong>${escapeHtml(featured.author?.name)}</strong>
                 <span>${escapeHtml(featured.author?.role)}</span>
@@ -255,7 +311,7 @@ function renderHubPage(project) {
             <p class="card-excerpt">${escapeHtml(article.excerpt)}</p>
             <div class="card-footer">
               <div class="card-author">
-                <img src="${article.author?.avatar}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-xs" />
+                <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, brandColor)}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-xs" />
                 <span class="author-name-xs">${escapeHtml(article.author?.name)}</span>
               </div>
               <a href="/sites/${project.id}/blog/${article.slug}" class="card-read-link">Read Full &rarr;</a>
@@ -268,6 +324,7 @@ function renderHubPage(project) {
 
   ${renderFooter(project)}
 
+  <script src="/js/blog.js"></script>
   <script>
     function filterArticles() {
       const q = document.getElementById('topic-search-input').value.toLowerCase().trim();
@@ -284,6 +341,47 @@ function renderHubPage(project) {
       });
       document.getElementById('visible-count').textContent = 'Showing ' + visible + ' of ' + cards.length + ' pages';
     }
+
+    // Check if current user is owner to show owner controls
+    document.addEventListener('DOMContentLoaded', async () => {
+      const token = localStorage.getItem('wpg_auth_token');
+      if (token) {
+        try {
+          const res = await fetch('/api/auth/me', {
+            headers: { 'Authorization': 'Bearer ' + token }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const siteOwnerId = '${project.ownerId || ""}';
+            if (data.user && (data.user.id === siteOwnerId || !siteOwnerId)) {
+              document.getElementById('owner-controls-bar').style.display = 'block';
+            }
+          }
+        } catch(e) {}
+      }
+    });
+
+    async function handleOwnerDeleteSite(siteId) {
+      if (!confirm('Are you sure you want to permanently delete this hosted site and all 10 blog pages?')) {
+        return;
+      }
+      const token = localStorage.getItem('wpg_auth_token');
+      try {
+        const res = await fetch('/api/projects/' + siteId, {
+          method: 'DELETE',
+          headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+        });
+        if (res.ok) {
+          alert('Hosted site deleted successfully.');
+          window.location.href = '/';
+        } else {
+          const err = await res.json();
+          alert(err.error || 'Failed to delete site.');
+        }
+      } catch (err) {
+        alert('Delete error: ' + err.message);
+      }
+    }
   </script>
 </body>
 </html>`;
@@ -299,7 +397,6 @@ function renderArticlePage(project, article) {
   const currentIdx = articles.findIndex(a => a.slug === article.slug);
   const prevArticle = currentIdx > 0 ? articles[currentIdx - 1] : null;
   const nextArticle = currentIdx < articles.length - 1 ? articles[currentIdx + 1] : null;
-  const otherArticles = articles.filter(a => a.slug !== article.slug).slice(0, 4);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -350,7 +447,7 @@ function renderArticlePage(project, article) {
 
           <div class="author-meta-block">
             <div class="author-details">
-              <img src="${article.author?.avatar}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-md" />
+              <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, brandColor)}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-md" />
               <div>
                 <div class="author-name">${escapeHtml(article.author?.name)}</div>
                 <div class="author-title">${escapeHtml(article.author?.role)} &bull; ${company}</div>
@@ -360,7 +457,8 @@ function renderArticlePage(project, article) {
             <div class="post-actions-bar">
               <span class="post-date">Published on ${article.publishDate}</span>
               <button class="btn btn-outline btn-sm copy-link-btn" onclick="copyCurrentUrl(this)">
-                <span>📋</span> Copy Page Link
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>Copy Page Link</span>
               </button>
             </div>
           </div>
@@ -391,10 +489,22 @@ function renderArticlePage(project, article) {
 
       <!-- Sidebar -->
       <aside class="post-sidebar">
+        <!-- Author Profile Card (Authentic user data) -->
+        <div class="sidebar-widget author-card">
+          <div class="widget-header">
+            <img src="${safeAvatarUrl(article.author?.avatar, article.author?.name, brandColor)}" alt="${escapeHtml(article.author?.name)}" class="author-avatar-md" />
+            <div>
+              <h4 class="widget-company">${escapeHtml(article.author?.name)}</h4>
+              <span class="widget-meta">${escapeHtml(article.author?.role)}</span>
+            </div>
+          </div>
+          <p class="widget-desc">${escapeHtml(article.author?.bio || `Insights published for ${company}.`)}</p>
+        </div>
+
         <!-- Quick Stats Widget -->
         <div class="sidebar-widget brand-card">
           <div class="widget-header">
-            <img src="${project.logoUrl}" alt="${company}" class="widget-logo" />
+            <img src="${safeLogoUrl(project.logoUrl, company, brandColor)}" alt="${company}" class="widget-logo" />
             <div>
               <h4 class="widget-company">${company}</h4>
               <span class="widget-meta">Hosted Blog Platform</span>

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "usr_demo_creator",
+    "name": "Demo Creator",
+    "email": "demo@webpagegenerator.com",
+    "passwordHash": "cfc87b2d570622a63604d43b8f4154d081a0dc8be88dbc1577877da9fec3a69b43d8051425c775ccc470a573ecc34b4bd7b1c5f65b0585ae4f74ff0551b71ae4",
+    "salt": "894d8ba9b4576d3d1f3b695f75ac92d9",
+    "createdAt": "2026-10-25T10:14:36.720Z"
+  },
+  {
+    "id": "usr_mvno96ax_44a708cb",
+    "name": "Hari Kumar",
+    "email": "hari@test.com",
+    "passwordHash": "742d44e67456c9d7b293400192f955b0fc315cf3c841ea57499633ffc4d39a382df97d794b97c3e055b93447cb77cad4feb60402dac49881be9e502fdbc57d6c",
+    "salt": "49b9040330c490c569afb29803009dba",
+    "createdAt": "2026-10-25T10:15:23.433Z"
+  },
+  {
+    "id": "usr_mvooifm0_989eb914",
+    "name": "Hari kiran Ventrapragada",
+    "email": "harikiranventrapragada@gmail.com",
+    "passwordHash": "34af218e46e733e88055ff1394ba2fa88f34701b49637bded8c8df6b15829cf71077606361c914fa925f0b7905830e4e2f28a76789da003783839adb37642979",
+    "salt": "4abf21f5013ddf17b207d60ea1b85a28",
+    "createdAt": "2026-10-26T03:10:21.576Z"
+  }
+]

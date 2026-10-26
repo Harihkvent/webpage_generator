@@ -2,7 +2,14 @@
  * server.js
  * Express server for Webpage Generator
  * Hosts both the Studio Portal and all generated 10-page brand websites
+ * Features:
+ * - Authentication & Authorization (Only owners can delete/modify their sites)
+ * - Authentic Author Management (Zero fake people data)
+ * - Zero Emojis (Clean SVG vector icons throughout)
+ * - Vercel Serverless Ready
  */
+
+require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
@@ -13,10 +20,20 @@ const archiver = require('archiver');
 const {
   getAllProjects,
   getProjectById,
+  getProjectsByOwner,
   saveProject,
   deleteProject,
-  generateMonogramSvg
+  generateMonogramSvg,
+  generateAuthorAvatarSvg
 } = require('./services/siteStorage');
+
+const {
+  registerUser,
+  loginUser,
+  getUserByToken,
+  logoutUser,
+  seedDemoUserIfEmpty
+} = require('./services/authService');
 
 const {
   generateArticleWithOptionalLLM,
@@ -42,6 +59,22 @@ app.use('/js', express.static(path.join(__dirname, 'public', 'js')));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 
 // -----------------------------------------------------------------------------
+// Auth Middleware
+// -----------------------------------------------------------------------------
+function extractUser(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7).trim();
+    req.user = getUserByToken(token);
+  } else {
+    req.user = null;
+  }
+  next();
+}
+
+app.use(extractUser);
+
+// -----------------------------------------------------------------------------
 // Studio Dashboard Route
 // -----------------------------------------------------------------------------
 app.get('/', (req, res) => {
@@ -49,14 +82,81 @@ app.get('/', (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// API Endpoints
+// API Endpoints: Auth
 // -----------------------------------------------------------------------------
 
-// List all projects (supports multiple use cases)
+// Sign up new user
+app.post('/api/auth/signup', (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const result = registerUser({ name, email, password });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Log in existing user
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const result = loginUser(email, password);
+    res.json(result);
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+// Get currently logged in user
+app.get('/api/auth/me', (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  res.json({ user: req.user });
+});
+
+// Log out user
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    logoutUser(authHeader.substring(7).trim());
+  }
+  res.json({ success: true });
+});
+
+// -----------------------------------------------------------------------------
+// API Endpoints: System Config
+// -----------------------------------------------------------------------------
+app.get('/api/config', (req, res) => {
+  res.json({
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+    isVercel: Boolean(process.env.VERCEL)
+  });
+});
+
+// -----------------------------------------------------------------------------
+// API Endpoints: Projects (Hosted Sites)
+// -----------------------------------------------------------------------------
+
+// List all projects (supports ?mine=true filter and attaches isOwner flag)
 app.get('/api/projects', (req, res) => {
   try {
-    const projects = getAllProjects();
-    res.json(projects);
+    const onlyMine = req.query.mine === 'true';
+    const currentUserId = req.user ? req.user.id : null;
+
+    let projects = getAllProjects();
+
+    if (onlyMine && currentUserId) {
+      projects = projects.filter(p => p.ownerId === currentUserId);
+    }
+
+    // Attach ownership status relative to requesting user
+    const projectsWithPerms = projects.map(p => ({
+      ...p,
+      isOwner: Boolean(currentUserId && p.ownerId === currentUserId) || (!p.ownerId && !currentUserId)
+    }));
+
+    res.json(projectsWithPerms);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -67,7 +167,12 @@ app.get('/api/projects/:id', (req, res) => {
   try {
     const project = getProjectById(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    res.json(project);
+
+    const currentUserId = req.user ? req.user.id : null;
+    res.json({
+      ...project,
+      isOwner: Boolean(currentUserId && project.ownerId === currentUserId)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -82,7 +187,12 @@ app.post('/api/projects', async (req, res) => {
       logoUrl,
       topics = [],
       llmProvider = 'builtin',
-      apiKey = ''
+      apiKey = '',
+      // Real author inputs (no fake personas)
+      authorName = '',
+      authorRole = '',
+      authorBio = '',
+      authorAvatar = ''
     } = req.body;
 
     if (!companyName || !companyName.trim()) {
@@ -92,25 +202,55 @@ app.post('/api/projects', async (req, res) => {
     const cleanTopics = (Array.isArray(topics) ? topics : [])
       .map(t => (typeof t === 'string' ? t.trim() : ''))
       .filter(Boolean)
-      .slice(0, 10); // Up to 10 topics
+      .slice(0, 10);
 
     if (cleanTopics.length === 0) {
       return res.status(400).json({ error: 'At least 1 topic is required (up to 10).' });
     }
 
     // Determine final logo: provided URL, uploaded base64 data, or generated SVG monogram
-    let finalLogo = logoUrl && logoUrl.trim() ? logoUrl.trim() : generateMonogramSvg(companyName, brandColor);
+    const finalLogo = logoUrl && logoUrl.trim() 
+      ? logoUrl.trim() 
+      : generateMonogramSvg(companyName, brandColor);
+
+    // Build real author profile (strictly user-defined or clean company fallback)
+    const effectiveAuthorName = authorName && authorName.trim()
+      ? authorName.trim()
+      : (req.user ? req.user.name : `${companyName.trim()} Editorial Team`);
+
+    const effectiveAuthorRole = authorRole && authorRole.trim()
+      ? authorRole.trim()
+      : 'Research & Strategy Contributor';
+
+    const effectiveAuthorAvatar = authorAvatar && authorAvatar.trim()
+      ? authorAvatar.trim()
+      : generateAuthorAvatarSvg(effectiveAuthorName, brandColor);
+
+    const effectiveAuthorBio = authorBio && authorBio.trim()
+      ? authorBio.trim()
+      : `Authoritative intelligence and strategic insights published by ${companyName.trim()}.`;
+
+    const authorProfile = {
+      name: effectiveAuthorName,
+      role: effectiveAuthorRole,
+      avatar: effectiveAuthorAvatar,
+      bio: effectiveAuthorBio
+    };
 
     const projectId = `site-${slugify(companyName)}-${Date.now().toString(36)}`;
 
-    // Generate each 1000-word article
+    // Generate each 1000-word article with authentic author details
     const generatedArticles = [];
     for (let i = 0; i < cleanTopics.length; i++) {
       const topic = cleanTopics[i];
-      const article = await generateArticleWithOptionalLLM(topic, companyName, brandColor, i, {
-        provider: llmProvider,
-        apiKey
-      });
+      const article = await generateArticleWithOptionalLLM(
+        topic,
+        companyName,
+        brandColor,
+        i,
+        { provider: llmProvider, apiKey },
+        authorProfile
+      );
       generatedArticles.push(article);
     }
 
@@ -121,6 +261,11 @@ app.post('/api/projects', async (req, res) => {
       logoUrl: finalLogo,
       topics: cleanTopics,
       articles: generatedArticles,
+      author: authorProfile,
+      // Record owner for authorization checks
+      ownerId: req.user ? req.user.id : 'usr_demo_creator',
+      ownerName: req.user ? req.user.name : 'Guest Creator',
+      ownerEmail: req.user ? req.user.email : 'demo@webpagegenerator.com',
       createdAt: new Date().toISOString()
     };
 
@@ -133,11 +278,31 @@ app.post('/api/projects', async (req, res) => {
   }
 });
 
-// Delete a project
+// Delete a project (enforces authorization: only the owner can delete their site)
 app.delete('/api/projects/:id', (req, res) => {
   try {
-    const success = deleteProject(req.params.id);
-    res.json({ success });
+    const currentUserId = req.user ? req.user.id : null;
+    const project = getProjectById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // If project has an assigned owner, enforce ownership
+    if (project.ownerId && project.ownerId !== 'usr_demo_creator') {
+      if (!currentUserId || project.ownerId !== currentUserId) {
+        return res.status(403).json({
+          error: 'Unauthorized: You can only delete sites you created.'
+        });
+      }
+    }
+
+    const result = deleteProject(req.params.id, currentUserId);
+    if (!result.success) {
+      return res.status(403).json({ error: result.error || 'Failed to delete' });
+    }
+
+    res.json({ success: true, message: 'Hosted site deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -170,7 +335,7 @@ app.get('/api/projects/:id/export', (req, res) => {
     }
 
     // Add all 10 articles as standalone HTML files
-    project.articles.forEach((art, idx) => {
+    project.articles.forEach((art) => {
       const artHtml = renderArticlePage(project, art);
       archive.append(artHtml, { name: `blog/${art.slug}.html` });
     });
@@ -182,7 +347,7 @@ app.get('/api/projects/:id/export', (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// Hosted Brand Website Routes
+// Hosted Brand Website Routes (Public Read Access)
 // -----------------------------------------------------------------------------
 
 // 1. Hosted Brand Publication Hub (Lists all 10 blog topics)
@@ -239,9 +404,10 @@ app.get('/sites/:siteId/blog/:slug', (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// Seed Initial Demo Project if Database is empty
+// Seed Initial Demo Project & User if Database is empty
 // -----------------------------------------------------------------------------
 async function seedDefaultProjectIfEmpty() {
+  seedDemoUserIfEmpty();
   const existing = getAllProjects();
   if (existing.length === 0) {
     console.log('Seeding initial demo campaign: Apex Cloud Systems (10 hosted pages)...');
@@ -262,19 +428,37 @@ async function seedDefaultProjectIfEmpty() {
     const demoColor = '#6366F1';
     const demoLogo = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=120&h=120&q=80';
 
+    const authorProfile = {
+      name: 'Apex Editorial Board',
+      role: 'Cloud Systems Architecture Contributor',
+      avatar: generateAuthorAvatarSvg('Apex Editorial Board', demoColor),
+      bio: 'Authoritative research, benchmarks, and cloud architectural frameworks published by Apex Cloud Systems.'
+    };
+
     const articles = [];
     for (let i = 0; i < demoTopics.length; i++) {
-      const art = await generateArticleWithOptionalLLM(demoTopics[i], demoCompany, demoColor, i);
+      const art = await generateArticleWithOptionalLLM(
+        demoTopics[i],
+        demoCompany,
+        demoColor,
+        i,
+        {},
+        authorProfile
+      );
       articles.push(art);
     }
 
     const demoProject = {
-      id: `site-apex-cloud-systems-seed`,
+      id: 'site-apex-cloud-systems-seed',
       companyName: demoCompany,
       brandColor: demoColor,
       logoUrl: demoLogo,
       topics: demoTopics,
       articles,
+      author: authorProfile,
+      ownerId: 'usr_demo_creator',
+      ownerName: 'Demo Creator',
+      ownerEmail: 'demo@webpagegenerator.com',
       createdAt: new Date().toISOString()
     };
 
@@ -283,12 +467,18 @@ async function seedDefaultProjectIfEmpty() {
   }
 }
 
-// Start Server
-app.listen(PORT, async () => {
-  console.log(`=======================================================`);
-  console.log(` Webpage Generator Portal running at: http://localhost:${PORT}`);
-  console.log(` - Studio Dashboard:   http://localhost:${PORT}`);
-  console.log(` - Live Demo Campaign: http://localhost:${PORT}/sites/site-apex-cloud-systems-seed`);
-  console.log(`=======================================================`);
-  await seedDefaultProjectIfEmpty();
-});
+// Start Server (when run locally, not inside Vercel serverless function)
+if (!process.env.VERCEL) {
+  app.listen(PORT, async () => {
+    console.log(`=======================================================`);
+    console.log(` Webpage Generator Portal running at: http://localhost:${PORT}`);
+    console.log(` - Studio Dashboard:   http://localhost:${PORT}`);
+    console.log(` - Live Demo Campaign: http://localhost:${PORT}/sites/site-apex-cloud-systems-seed`);
+    console.log(` - Gemini API Key:     ${Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'Configured in .env' : 'Not set (using built-in 1000-word engine)'}`);
+    console.log(` - Auth System:        Enabled (Email/Password, Tokens & Ownership)`);
+    console.log(`=======================================================`);
+    await seedDefaultProjectIfEmpty();
+  });
+}
+
+module.exports = app;

@@ -6,6 +6,8 @@
  * 2. Optional Free LLM integrations (Google Gemini API / Groq / HuggingFace free endpoints)
  */
 
+const { generateAuthorAvatarSvg } = require('./siteStorage');
+
 // Helper to calculate exact word count
 function countWords(text) {
   if (!text) return 0;
@@ -37,7 +39,7 @@ function slugify(text) {
  * - FAQ section with 4 interactive Q&A pairs
  * - Branded call-to-action
  */
-function generateStructuredArticle(topic, companyName, brandColor, index) {
+function generateStructuredArticle(topic, companyName, brandColor, index, authorInfo = null) {
   const cleanTopic = topic.trim();
   const slug = `${slugify(cleanTopic)}-${index + 1}`;
   const publishDate = new Date(Date.now() - index * 86400000 * 2).toLocaleDateString('en-US', {
@@ -46,13 +48,26 @@ function generateStructuredArticle(topic, companyName, brandColor, index) {
     day: 'numeric'
   });
 
-  const authors = [
-    { name: 'Dr. Sarah Jenkins', role: 'Head of Industry Research', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80' },
-    { name: 'Alex Rivera', role: 'Principal Strategy Architect', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80' },
-    { name: 'Elena Rostova', role: 'Chief Insights Director', avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&q=80' },
-    { name: 'Marcus Chen', role: 'Senior Solutions Lead', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80' }
-  ];
-  const author = authors[index % authors.length];
+  // Authentic, user-provided author details (no fake/invented persons)
+  const realAuthorName = (authorInfo && authorInfo.name && authorInfo.name.trim()) 
+    ? authorInfo.name.trim() 
+    : `${companyName} Editorial Team`;
+  const realAuthorRole = (authorInfo && authorInfo.role && authorInfo.role.trim()) 
+    ? authorInfo.role.trim() 
+    : 'Research & Strategy Contributor';
+  const realAuthorAvatar = (authorInfo && authorInfo.avatar && authorInfo.avatar.trim()) 
+    ? authorInfo.avatar.trim() 
+    : generateAuthorAvatarSvg(realAuthorName, brandColor);
+  const realAuthorBio = (authorInfo && authorInfo.bio && authorInfo.bio.trim()) 
+    ? authorInfo.bio.trim() 
+    : `Authoritative research and publications curated by ${realAuthorName} at ${companyName}.`;
+
+  const author = {
+    name: realAuthorName,
+    role: realAuthorRole,
+    avatar: realAuthorAvatar,
+    bio: realAuthorBio
+  };
 
   // Curate rich, topic-relevant perspectives
   const sections = [
@@ -208,7 +223,7 @@ function generateStructuredArticle(topic, companyName, brandColor, index) {
 
     <div class="article-callout key-takeaways">
       <div class="callout-header">
-        <span class="callout-icon">💡</span>
+        <span class="callout-icon"><svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/></svg></span>
         <h4>Executive Summary & Key Takeaways</h4>
       </div>
       <ul class="takeaways-list">
@@ -353,13 +368,16 @@ function generateStructuredArticle(topic, companyName, brandColor, index) {
  * Optional External Free LLM API support:
  * Checks for user-provided Gemini API Key, Groq API Key, or falls back to built-in generator.
  */
-async function generateArticleWithOptionalLLM(topic, companyName, brandColor, index, options = {}) {
+async function generateArticleWithOptionalLLM(topic, companyName, brandColor, index, options = {}, authorInfo = null) {
   const { apiKey, provider = 'builtin' } = options;
+  // Automatically check options or .env variables (GEMINI_API_KEY or GOOGLE_API_KEY)
+  const effectiveApiKey = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+  const shouldUseGemini = (provider === 'gemini' || (effectiveApiKey && provider !== 'builtin_forced')) && Boolean(effectiveApiKey);
 
-  // If user provided a Gemini API Key or Groq Key, we can query it
-  if (provider === 'gemini' && apiKey) {
+  if (shouldUseGemini) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      console.log(`[AI Engine] Generating 1000-word post for "${topic}" via Google Gemini API...`);
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${effectiveApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -403,7 +421,7 @@ Do NOT include markdown backticks or <html>/<body> tags. Ensure the text is at l
   }
 
   // High-fidelity fallback / built-in generator
-  return generateStructuredArticle(topic, companyName, brandColor, index);
+  return generateStructuredArticle(topic, companyName, brandColor, index, authorInfo);
 }
 
 module.exports = {

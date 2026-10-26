@@ -1,21 +1,42 @@
 /**
  * siteStorage.js
- * Persistent project database & site manager
+ * Persistent project database & site manager with ownership & authorization support
+ * Compatible with local disk and Vercel Serverless environment (/tmp)
  */
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
 
-const DATA_FILE = path.join(__dirname, '..', 'data', 'projects.json');
+// Bundled seed database location
+const BUNDLED_DATA_FILE = path.join(__dirname, '..', 'data', 'projects.json');
+
+// If running in Vercel serverless, use /tmp which is writable
+const DATA_FILE = process.env.VERCEL
+  ? path.join('/tmp', 'projects.json')
+  : BUNDLED_DATA_FILE;
+
+// In-memory cache fallback
+let memoryProjects = null;
 
 // Ensure data folder and file exists
 function ensureStorage() {
-  const dataDir = path.dirname(DATA_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify([], null, 2), 'utf-8');
+  try {
+    const dataDir = path.dirname(DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (!fs.existsSync(DATA_FILE)) {
+      if (fs.existsSync(BUNDLED_DATA_FILE)) {
+        // Copy bundled initial data
+        const initial = fs.readFileSync(BUNDLED_DATA_FILE, 'utf-8');
+        fs.writeFileSync(DATA_FILE, initial, 'utf-8');
+      } else {
+        fs.writeFileSync(DATA_FILE, JSON.stringify([], null, 2), 'utf-8');
+      }
+    }
+  } catch (err) {
+    console.warn('Storage warning (using in-memory fallback):', err.message);
+    if (!memoryProjects) memoryProjects = [];
   }
 }
 
@@ -51,7 +72,7 @@ function adjustBrightness(hexColor, percent) {
   g = Math.min(255, Math.max(0, g));
   b = Math.min(255, Math.max(0, b));
 
-  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 
 // Generate an elegant SVG monogram if no logo image uploaded
@@ -65,20 +86,55 @@ function generateMonogramSvg(companyName, brandColor) {
     .toUpperCase() || 'CO';
 
   const contrast = getContrastColor(brandColor);
+  const color1 = brandColor || '#3B82F6';
+  const color2 = adjustBrightness(color1, -25);
 
-  return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${encodeURIComponent(brandColor)}"/><stop offset="100%" stop-color="${encodeURIComponent(adjustBrightness(brandColor, -25))}"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(%23g)"/><text x="60" y="73" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-weight="800" font-size="44" fill="${contrast}" text-anchor="middle">${initials}</text></svg>`;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">' +
+    '<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">' +
+    '<stop offset="0%" stop-color="' + color1 + '"/>' +
+    '<stop offset="100%" stop-color="' + color2 + '"/>' +
+    '</linearGradient></defs>' +
+    '<rect width="120" height="120" rx="28" fill="url(#g)"/>' +
+    '<text x="60" y="73" font-family="-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif" font-weight="800" font-size="44" fill="' + contrast + '" text-anchor="middle">' + initials + '</text>' +
+    '</svg>';
+
+  return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
+}
+
+// Generate a clean author avatar monogram
+function generateAuthorAvatarSvg(authorName, brandColor) {
+  const initials = (authorName || 'ED')
+    .split(' ')
+    .filter(Boolean)
+    .map(w => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || 'ED';
+
+  const contrast = getContrastColor(brandColor);
+  const color = brandColor || '#3B82F6';
+  const fillColor = adjustBrightness(color, -10);
+
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">' +
+    '<circle cx="40" cy="40" r="38" fill="' + fillColor + '" stroke="' + color + '" stroke-width="2"/>' +
+    '<text x="40" y="49" font-family="-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif" font-weight="700" font-size="26" fill="' + contrast + '" text-anchor="middle">' + initials + '</text>' +
+    '</svg>';
+
+  return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
 }
 
 // Read all projects
 function getAllProjects() {
   ensureStorage();
   try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-    return JSON.parse(raw);
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
   } catch (err) {
-    console.error('Error reading projects.json:', err);
-    return [];
+    console.error('Error reading projects.json:', err.message);
   }
+  return memoryProjects || [];
 }
 
 // Get single project
@@ -87,8 +143,41 @@ function getProjectById(id) {
   return projects.find(p => p.id === id) || null;
 }
 
+// Get projects belonging to a specific user
+function getProjectsByOwner(ownerId) {
+  const projects = getAllProjects();
+  if (!ownerId) return [];
+  return projects.filter(p => p.ownerId === ownerId);
+}
+
 // Save or update project
+
+function toBase64SvgDataUri(val) {
+  if (typeof val === 'string' && (val.startsWith('data:image/svg+xml;utf8,') || (val.startsWith('data:image/svg+xml') && val.includes('<svg')))) {
+    const rawSvg = val.replace(/^data:image\/svg\+xml(;utf8)?,?/, '');
+    return 'data:image/svg+xml;base64,' + Buffer.from(rawSvg, 'utf8').toString('base64');
+  }
+  return val;
+}
+
+function sanitizeProjectData(project) {
+  if (!project) return project;
+  if (project.logoUrl) project.logoUrl = toBase64SvgDataUri(project.logoUrl);
+  if (project.author && project.author.avatar) {
+    project.author.avatar = toBase64SvgDataUri(project.author.avatar);
+  }
+  if (Array.isArray(project.articles)) {
+    project.articles.forEach(a => {
+      if (a.author && a.author.avatar) {
+        a.author.avatar = toBase64SvgDataUri(a.author.avatar);
+      }
+    });
+  }
+  return project;
+}
+
 function saveProject(project) {
+  project = sanitizeProjectData(project);
   ensureStorage();
   const projects = getAllProjects();
   const existingIdx = projects.findIndex(p => p.id === project.id);
@@ -107,25 +196,50 @@ function saveProject(project) {
     });
   }
 
-  fs.writeFileSync(DATA_FILE, JSON.stringify(projects, null, 2), 'utf-8');
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(projects, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Could not write to disk, saving to memory:', err.message);
+    memoryProjects = projects;
+  }
+
   return project;
 }
 
-// Delete project
-function deleteProject(id) {
+// Delete project with owner authorization check
+function deleteProject(id, requestingUserId = null) {
   ensureStorage();
   let projects = getAllProjects();
+  const project = projects.find(p => p.id === id);
+
+  if (!project) {
+    return { success: false, error: 'Project not found' };
+  }
+
+  // Authorization check: if project has an owner, only the owner can delete it
+  if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId) {
+    return { success: false, error: 'Unauthorized: You can only delete your own hosted sites.' };
+  }
+
   projects = projects.filter(p => p.id !== id);
-  fs.writeFileSync(DATA_FILE, JSON.stringify(projects, null, 2), 'utf-8');
-  return true;
+
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(projects, null, 2), 'utf-8');
+  } catch (err) {
+    memoryProjects = projects;
+  }
+
+  return { success: true };
 }
 
 module.exports = {
   getAllProjects,
   getProjectById,
+  getProjectsByOwner,
   saveProject,
   deleteProject,
   getContrastColor,
   adjustBrightness,
-  generateMonogramSvg
+  generateMonogramSvg,
+  generateAuthorAvatarSvg
 };

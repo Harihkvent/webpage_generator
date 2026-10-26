@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Webpage Generator Studio &bull; Multi-Site 10-Topic Blog Platform</title>
-  <meta name="description" content="Generate and host 10 comprehensive 1000-word blog pages with consistent layout, company logo, and brand color in hex format for multiple use cases.">
+  <meta name="description" content="Generate and host 10 comprehensive 1000-word blog pages with consistent layout, company logo, real author profile, and brand color in hex format for multiple use cases.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -12,11 +12,13 @@
 </head>
 <body class="studio-body">
 
-  <!-- Header -->
+  <!-- Header with Auth Controls -->
   <header class="studio-header">
     <div class="studio-header-inner">
       <a href="/" class="studio-brand">
-        <div class="studio-logo-icon">⚡</div>
+        <div class="studio-logo-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
         <div class="studio-brand-text">
           <span class="studio-brand-title">Webpage Generator</span>
           <span class="studio-brand-badge">Multi-Use Case Portal</span>
@@ -25,11 +27,26 @@
 
       <nav class="studio-nav" aria-label="Studio Navigation">
         <button type="button" class="nav-tab-btn active" id="tab-generator-btn" onclick="scrollToSection('generator-section')">
-          <span>🛠️</span> Generator Studio
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          <span>Generator Studio</span>
         </button>
         <button type="button" class="nav-tab-btn" id="tab-directory-btn" onclick="scrollToSection('directory-section')">
-          <span>🌐</span> Hosted Sites <span class="badge-count" id="header-sites-count">0</span>
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <span>Hosted Sites</span>
+          <span class="badge-count" id="header-sites-count">0</span>
         </button>
+
+        <!-- User Authentication Widget -->
+        <div class="auth-header-widget" id="auth-header-widget">
+          <!-- Populated dynamically: Sign In / Sign Up buttons OR User Profile Pill -->
+          <button type="button" class="btn btn-outline btn-sm" onclick="openAuthModal('login')">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            <span>Sign In</span>
+          </button>
+          <button type="button" class="btn btn-brand btn-sm" onclick="openAuthModal('signup')">
+            <span>Sign Up</span>
+          </button>
+        </div>
       </nav>
     </div>
   </header>
@@ -39,17 +56,18 @@
     <!-- Hero Banner -->
     <section class="studio-hero">
       <div class="hero-pill">
-        <span class="hero-pill-sparkle">✨</span>
-        <span>AI-Powered Automated 10-Page Web Publication Platform</span>
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        <span>Automated 10-Page Web Publication Platform</span>
       </div>
       <h1 class="hero-title">Create, Style, &amp; Host <span class="gradient-text">10 Dedicated Pages</span> for Any Brand</h1>
-      <p class="hero-description">Enter your company details, brand hex color, and up to 10 topics. Our engine writes well-formatted 1000+ word deep-dive posts for every single topic and hosts them with a consistent, branded design.</p>
+      <p class="hero-description">Enter your company details, brand hex color, real author profile, and up to 10 topics. Our engine writes well-formatted 1000+ word deep-dive posts for every single topic and hosts them with a consistent, branded design.</p>
     </section>
 
     <!-- Quick Presets & Multiple Use Cases Bar -->
     <section class="presets-strip" aria-label="Multi-use-case quick presets">
       <div class="presets-label">
-        <span>⚡ Quick Multi-Use Presets:</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        <span>Quick Multi-Use Presets:</span>
       </div>
       <div class="preset-buttons-group">
         <button type="button" class="btn-preset" onclick="loadPreset('saas')">
@@ -66,7 +84,7 @@
         </button>
         <button type="button" class="btn-preset" onclick="loadPreset('health')">
           <span class="preset-dot" style="background:#8b5cf6;"></span>
-          <span>Health &amp; Wellness</span>
+          <span>Health &amp; Longevity</span>
         </button>
       </div>
     </section>
@@ -78,9 +96,9 @@
         <header class="panel-header">
           <h2 class="panel-title">
             <span class="step-num">1</span>
-            <span>Configure Brand &amp; 10 Topics</span>
+            <span>Configure Brand, Author &amp; 10 Topics</span>
           </h2>
-          <p class="panel-subtitle">Provide your company details and enter up to 10 topics to be generated and hosted.</p>
+          <p class="panel-subtitle">Provide your company details, genuine author profile, and enter up to 10 topics to be generated and hosted.</p>
         </header>
 
         <form id="generator-form" onsubmit="handleGenerateSubmit(event)">
@@ -88,7 +106,8 @@
           <div class="form-section">
             <div class="section-label-row">
               <label for="company-name" class="form-label">
-                <span>🏢 Company Name</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 21h18"/><path d="M9 8h1"/><path d="M9 12h1"/><path d="M9 16h1"/><path d="M14 8h1"/><path d="M14 12h1"/><path d="M14 16h1"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/></svg>
+                <span>Company Name</span>
                 <span class="required-star">*</span>
               </label>
               <span class="label-hint">Shown in header, footer, &amp; citations</span>
@@ -104,11 +123,57 @@
             />
           </div>
 
+          <!-- Real Author Details (No Fake Data!) -->
+          <div class="form-section author-profile-box">
+            <div class="section-label-row">
+              <label class="form-label">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span>Author Profile (Real Data)</span>
+              </label>
+              <span class="label-hint">Author details for bylines across all 10 posts</span>
+            </div>
+            
+            <div class="author-inputs-grid">
+              <div>
+                <label for="author-name" class="sub-label">Author / Byline Name</label>
+                <input 
+                  type="text" 
+                  id="author-name" 
+                  class="form-control-input" 
+                  placeholder="e.g. Hari Kumar or Editorial Board" 
+                  oninput="updateLivePreview()" 
+                />
+              </div>
+              <div>
+                <label for="author-role" class="sub-label">Designation / Role</label>
+                <input 
+                  type="text" 
+                  id="author-role" 
+                  class="form-control-input" 
+                  placeholder="e.g. Founder &amp; Chief Architect" 
+                  oninput="updateLivePreview()" 
+                />
+              </div>
+            </div>
+
+            <div style="margin-top:12px;">
+              <label for="author-bio" class="sub-label">Short Author Bio</label>
+              <input 
+                type="text" 
+                id="author-bio" 
+                class="form-control-input" 
+                placeholder="e.g. Technology strategist writing on scalable cloud systems." 
+                oninput="updateLivePreview()" 
+              />
+            </div>
+          </div>
+
           <!-- Logo Image -->
           <div class="form-section">
             <div class="section-label-row">
               <label class="form-label">
-                <span>🎨 Logo Image</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <span>Logo Image</span>
               </label>
               <span class="label-hint">Upload file, enter URL, or auto-generate monogram</span>
             </div>
@@ -117,7 +182,9 @@
               <input type="file" id="logo-file-input" accept="image/*" style="display:none;" onchange="handleLogoFileSelect(event)" />
               <img id="logo-preview-img" src="" alt="Logo Preview" class="logo-preview-img" style="display:none;" />
               <div id="logo-dropzone-placeholder">
-                <div class="upload-icon">📁</div>
+                <div class="upload-icon">
+                  <svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="1.8" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
                 <div class="upload-text">Click to upload brand logo or drag &amp; drop</div>
                 <div class="upload-subtext">Supports PNG, SVG, JPG, WebP (Max 5MB)</div>
               </div>
@@ -138,7 +205,8 @@
           <div class="form-section">
             <div class="section-label-row">
               <label for="brand-color-hex" class="form-label">
-                <span>🎯 Brand Colour in Hex Format</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><path d="M12 2a7 7 0 0 0 0 14h2a2 2 0 0 1 2 2 2 2 0 0 0 4 0 9 9 0 0 0-8-16z"/></svg>
+                <span>Brand Colour in Hex Format</span>
                 <span class="required-star">*</span>
               </label>
               <span class="label-hint">Defines buttons, badges, accents &amp; highlights</span>
@@ -185,12 +253,14 @@
           <div class="form-section">
             <div class="section-label-row">
               <label class="form-label">
-                <span>📝 Enter Up to 10 Blog Topics</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                <span>Enter Up to 10 Blog Topics</span>
                 <span class="required-star">*</span>
               </label>
               <div class="topics-header-actions">
                 <button type="button" class="btn-suggest-topics" onclick="suggestTopicsForBrand()">
-                  <span>🤖</span> Auto-Suggest 10 Topics
+                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                  <span>Auto-Suggest 10 Topics</span>
                 </button>
               </div>
             </div>
@@ -212,7 +282,11 @@
           <div class="form-section">
             <div class="section-label-row">
               <label for="llm-provider-select" class="form-label">
-                <span>🧠 Article Generation Engine</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
+                <span>Article Generation Engine</span>
+                <span id="gemini-env-badge" style="display:none; margin-left:8px; font-size:0.75rem; background:rgba(16,185,129,0.2); color:#10B981; border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:12px; font-weight:600;">
+                  .env Gemini Key Active
+                </span>
               </label>
               <span class="label-hint">1000+ words per page guaranteed</span>
             </div>
@@ -222,14 +296,14 @@
             </select>
             <div id="api-key-container" style="display:none; margin-top:12px;">
               <input type="password" id="api-key-input" class="form-control-input" placeholder="Enter your free Gemini API Key (optional)" />
-              <span class="label-hint" style="margin-top:4px; display:block;">If left blank or unavailable, the system uses the built-in 1000+ word engine.</span>
+              <span class="label-hint" style="margin-top:4px; display:block;">If left blank, the system automatically uses the key configured in .env or the built-in 1000+ word engine.</span>
             </div>
           </div>
 
           <!-- Master Submit Button -->
           <div class="submit-container">
             <button type="submit" class="btn-generate-master" id="btn-generate-submit">
-              <span>🚀</span>
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg>
               <span>Generate &amp; Host All 10 Pages Now</span>
             </button>
           </div>
@@ -264,7 +338,7 @@
             </span>
             <h3 class="sim-h1" id="sim-sample-title">Modern Architectural Frameworks for Sustainable Growth</h3>
             <div class="sim-meta">
-              <span>By Senior Research Lead</span> &bull; <span>~8 min read</span>
+              <span id="sim-author-display">By Editorial Board</span> &bull; <span>~8 min read</span>
             </div>
 
             <div class="sim-box-callout" id="sim-callout" style="background:rgba(99, 102, 241, 0.08); border-left:4px solid #6366F1;">
@@ -283,12 +357,24 @@
     <section class="sites-directory-section" id="directory-section">
       <div class="directory-header">
         <div>
-          <h2 class="directory-title">🌐 Hosted Platforms &amp; Campaigns</h2>
-          <p class="directory-subtitle">Switch between multiple use cases, visit hosted sites, read the 10 blog posts, or download static bundles.</p>
+          <h2 class="directory-title">Hosted Platforms &amp; Campaigns</h2>
+          <p class="directory-subtitle">Browse all hosted sites. You can delete and manage the sites you own.</p>
         </div>
-        <button type="button" class="btn btn-outline btn-sm" onclick="fetchAndRenderProjects()">
-          <span>🔄 Refresh Directory</span>
-        </button>
+        
+        <!-- Filter Tabs: My Hosted Sites vs All Sites -->
+        <div class="directory-filter-tabs">
+          <button type="button" class="dir-filter-btn active" id="filter-all-sites-btn" onclick="setDirectoryFilter('all')">
+            <span>All Hosted Sites</span>
+          </button>
+          <button type="button" class="dir-filter-btn" id="filter-my-sites-btn" onclick="setDirectoryFilter('mine')">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>My Sites Only</span>
+          </button>
+          <button type="button" class="dir-filter-btn" onclick="fetchAndRenderProjects()" title="Refresh Directory">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       <div class="sites-grid" id="sites-grid">
@@ -297,10 +383,71 @@
     </section>
   </main>
 
-  <!-- Animated Generation Modal -->
+  <!-- User Authentication Modal (Sign In / Sign Up) -->
+  <div class="modal-backdrop" id="auth-modal" aria-hidden="true">
+    <div class="modal-dialog auth-dialog">
+      <div class="auth-tabs-header">
+        <button type="button" class="auth-tab-btn active" id="auth-tab-login" onclick="switchAuthTab('login')">Sign In</button>
+        <button type="button" class="auth-tab-btn" id="auth-tab-signup" onclick="switchAuthTab('signup')">Create Account</button>
+      </div>
+
+      <!-- Sign In Form -->
+      <form id="form-login" onsubmit="handleAuthLogin(event)">
+        <div class="form-section">
+          <label class="sub-label">Work Email</label>
+          <input type="email" id="login-email" class="form-control-input" placeholder="you@company.com" required />
+        </div>
+        <div class="form-section">
+          <label class="sub-label">Password</label>
+          <input type="password" id="login-password" class="form-control-input" placeholder="Your password" required />
+        </div>
+        <div class="auth-submit-row">
+          <button type="submit" class="btn btn-brand btn-block" id="btn-login-submit">
+            <span>Sign In to Account</span>
+          </button>
+        </div>
+      </form>
+
+      <!-- Sign Up Form -->
+      <form id="form-signup" style="display:none;" onsubmit="handleAuthSignup(event)">
+        <div class="form-section">
+          <label class="sub-label">Full Name</label>
+          <input type="text" id="signup-name" class="form-control-input" placeholder="e.g. Hari Kumar" required />
+        </div>
+        <div class="form-section">
+          <label class="sub-label">Work Email</label>
+          <input type="email" id="signup-email" class="form-control-input" placeholder="you@company.com" required />
+        </div>
+        <div class="form-section">
+          <label class="sub-label">Password</label>
+          <input type="password" id="signup-password" class="form-control-input" placeholder="At least 6 characters" minlength="6" required />
+        </div>
+        <div class="auth-submit-row">
+          <button type="submit" class="btn btn-brand btn-block" id="btn-signup-submit">
+            <span>Create Free Account</span>
+          </button>
+        </div>
+      </form>
+
+      <div class="auth-divider"><span>OR</span></div>
+
+      <button type="button" class="btn btn-outline btn-block btn-demo-quick" onclick="handleDemoQuickLogin()">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        <span>Instant Demo Login (1-Click)</span>
+      </button>
+
+      <button type="button" class="modal-close-corner" onclick="closeAuthModal()" title="Close">&times;</button>
+    </div>
+  </div>
+
+  <!-- Animated Generation Modal (Zero emojis, clean SVG spinner) -->
   <div class="modal-backdrop" id="generation-modal" aria-hidden="true">
     <div class="modal-dialog">
-      <div class="modal-icon-spinner" id="modal-spinner"></div>
+      <div class="modal-icon-spinner" id="modal-spinner">
+        <svg class="spinner-svg" viewBox="0 0 50 50">
+          <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
+        </svg>
+      </div>
       <h3 class="modal-title" id="modal-title">Generating 10 Hosted Pages...</h3>
       <p class="modal-status-text" id="modal-status">Writing 1000-word deep-dive articles and assembling layout...</p>
 
@@ -314,7 +461,8 @@
 
       <div class="modal-success-actions" id="modal-success-actions">
         <a href="#" target="_blank" class="btn btn-brand" id="modal-view-hub-btn">
-          <span>🚀</span> Open Hosted Blog Hub
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          <span>Open Hosted Blog Hub</span>
         </a>
         <button type="button" class="btn btn-outline" onclick="closeGenerationModal()">
           Done &amp; Close

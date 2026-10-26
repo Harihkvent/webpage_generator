@@ -1,13 +1,21 @@
 /**
  * studio.js
  * Logic for Webpage Generator Studio Portal
+ * Features:
+ * - Full Authentication & Session management
+ * - Ownership-based site deletion & filtering
+ * - Real author profile handling (zero fake personas)
+ * - Zero emojis (clean SVGs throughout)
  */
 
-// Multi-use case presets data
+// Multi-use case presets data (Real, professional data)
 const PRESETS = {
   saas: {
     companyName: 'Apex Cloud Systems',
     brandColor: '#6366F1',
+    authorName: 'Apex Architecture Team',
+    authorRole: 'Enterprise Cloud Solutions Lead',
+    authorBio: 'Specializing in distributed systems, Kubernetes orchestration, and cloud-native resilience.',
     logoUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=120&h=120&q=80',
     topics: [
       'Microservices Orchestration in Enterprise Cloud Architectures',
@@ -25,6 +33,9 @@ const PRESETS = {
   fintech: {
     companyName: 'Nova Wealth & Capital',
     brandColor: '#0284C7',
+    authorName: 'Nova Quantitative Strategy Group',
+    authorRole: 'Head of Quantitative Asset Management',
+    authorBio: 'Focusing on algorithmic portfolio optimization, real-time liquidity rails, and risk intelligence.',
     logoUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=120&h=120&q=80',
     topics: [
       'Algorithmic Asset Allocation in Volatile Market Regimes',
@@ -42,6 +53,9 @@ const PRESETS = {
   cleantech: {
     companyName: 'Verdant Solar Dynamics',
     brandColor: '#10B981',
+    authorName: 'Verdant Energy Research Labs',
+    authorRole: 'Director of Renewable Grid Technologies',
+    authorBio: 'Pioneering utility-scale storage, virtual power plants, and industrial decarbonization protocols.',
     logoUrl: 'https://images.unsplash.com/photo-1497440001374-f26997328c1b?auto=format&fit=crop&w=120&h=120&q=80',
     topics: [
       'Utility-Scale Solar Storage: Battery Chemistry Breakthroughs',
@@ -59,6 +73,9 @@ const PRESETS = {
   health: {
     companyName: 'Aura Longevity Biotech',
     brandColor: '#8B5CF6',
+    authorName: 'Aura Clinical Insights Board',
+    authorRole: 'Chief of Preventative & Translational Medicine',
+    authorBio: 'Investigating cellular rejuvenation, proactive biomarker telemetry, and targeted therapeutics.',
     logoUrl: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=120&h=120&q=80',
     topics: [
       'Cellular Rejuvenation and Senolytic Therapies in Preventative Medicine',
@@ -77,12 +94,21 @@ const PRESETS = {
 
 let currentLogoDataUrl = '';
 let currentTopics = [];
+let currentUser = null;
+let currentDirectoryFilter = 'all';
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
+  // Check auth status
+  initAuth();
+
   // Load default SaaS preset
   loadPreset('saas');
-  // Fetch existing projects
+
+  // Check if .env has Gemini API Key
+  checkServerConfig();
+
+  // Fetch initial projects
   fetchAndRenderProjects();
 });
 
@@ -94,7 +120,221 @@ function scrollToSection(id) {
   }
 }
 
-// Load a preset for instant multi-use testing
+// -----------------------------------------------------------------------------
+// Authentication System
+// -----------------------------------------------------------------------------
+async function initAuth() {
+  const token = localStorage.getItem('wpg_auth_token');
+  if (!token) {
+    renderAuthHeader(null);
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/me', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = data.user;
+      renderAuthHeader(currentUser);
+
+      // Pre-fill author name if blank
+      const authorField = document.getElementById('author-name');
+      if (authorField && !authorField.value) {
+        authorField.value = currentUser.name;
+        updateLivePreview();
+      }
+    } else {
+      localStorage.removeItem('wpg_auth_token');
+      renderAuthHeader(null);
+    }
+  } catch (err) {
+    console.warn('Auth check error:', err);
+    renderAuthHeader(null);
+  }
+}
+
+function renderAuthHeader(user) {
+  const container = document.getElementById('auth-header-widget');
+  if (!container) return;
+
+  if (user) {
+    const initials = user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    container.innerHTML = `
+      <div class="user-profile-pill">
+        <span class="user-avatar-dot">${initials}</span>
+        <span>${escapeHtml(user.name)}</span>
+        <button type="button" class="btn-signout" onclick="handleAuthLogout()" title="Sign Out">
+          Sign Out
+        </button>
+      </div>
+    `;
+  } else {
+    container.innerHTML = `
+      <button type="button" class="btn btn-outline btn-sm" onclick="openAuthModal('login')">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        <span>Sign In</span>
+      </button>
+      <button type="button" class="btn btn-brand btn-sm" onclick="openAuthModal('signup')">
+        <span>Sign Up</span>
+      </button>
+    `;
+  }
+}
+
+function openAuthModal(tab = 'login') {
+  switchAuthTab(tab);
+  document.getElementById('auth-modal').classList.add('active');
+}
+
+function closeAuthModal() {
+  document.getElementById('auth-modal').classList.remove('active');
+}
+
+function switchAuthTab(tab) {
+  const loginForm = document.getElementById('form-login');
+  const signupForm = document.getElementById('form-signup');
+  const loginTab = document.getElementById('auth-tab-login');
+  const signupTab = document.getElementById('auth-tab-signup');
+
+  if (tab === 'signup') {
+    loginForm.style.display = 'none';
+    signupForm.style.display = 'block';
+    loginTab.classList.remove('active');
+    signupTab.classList.add('active');
+  } else {
+    loginForm.style.display = 'block';
+    signupForm.style.display = 'none';
+    loginTab.classList.add('active');
+    signupTab.classList.remove('active');
+  }
+}
+
+async function handleAuthLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
+
+    localStorage.setItem('wpg_auth_token', data.token);
+    currentUser = data.user;
+    renderAuthHeader(currentUser);
+    closeAuthModal();
+
+    // Refresh projects list with ownership permissions
+    fetchAndRenderProjects();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleAuthSignup(e) {
+  e.preventDefault();
+  const name = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+
+  try {
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Signup failed');
+
+    localStorage.setItem('wpg_auth_token', data.token);
+    currentUser = data.user;
+    renderAuthHeader(currentUser);
+    closeAuthModal();
+
+    // Pre-fill author name with user name
+    const authorField = document.getElementById('author-name');
+    if (authorField) authorField.value = currentUser.name;
+    updateLivePreview();
+
+    fetchAndRenderProjects();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleDemoQuickLogin() {
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'demo@webpagegenerator.com', password: 'Demo1234!' })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      localStorage.setItem('wpg_auth_token', data.token);
+      currentUser = data.user;
+      renderAuthHeader(currentUser);
+      closeAuthModal();
+      fetchAndRenderProjects();
+    }
+  } catch (err) {
+    alert('Demo login error: ' + err.message);
+  }
+}
+
+async function handleAuthLogout() {
+  const token = localStorage.getItem('wpg_auth_token');
+  if (token) {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+    } catch (e) {}
+  }
+
+  localStorage.removeItem('wpg_auth_token');
+  currentUser = null;
+  renderAuthHeader(null);
+  fetchAndRenderProjects();
+}
+
+// -----------------------------------------------------------------------------
+// System Config & Gemini Key Status
+// -----------------------------------------------------------------------------
+async function checkServerConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) {
+      const data = await res.json();
+      const statusBadge = document.getElementById('gemini-env-badge');
+      if (data.hasGeminiKey) {
+        const select = document.getElementById('llm-provider-select');
+        const opt = select ? select.querySelector('option[value="gemini"]') : null;
+        if (opt) {
+          opt.textContent = 'Google Gemini (Active via .env GEMINI_API_KEY)';
+        }
+        if (statusBadge) {
+          statusBadge.style.display = 'inline-flex';
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Config check:', e.message);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Presets & Real Author Setup
+// -----------------------------------------------------------------------------
 function loadPreset(key) {
   const preset = PRESETS[key];
   if (!preset) return;
@@ -102,6 +342,9 @@ function loadPreset(key) {
   document.getElementById('company-name').value = preset.companyName;
   document.getElementById('brand-color-hex').value = preset.brandColor;
   document.getElementById('brand-color-picker').value = preset.brandColor;
+  document.getElementById('author-name').value = preset.authorName;
+  document.getElementById('author-role').value = preset.authorRole;
+  document.getElementById('author-bio').value = preset.authorBio;
   currentLogoDataUrl = preset.logoUrl;
 
   const previewImg = document.getElementById('logo-preview-img');
@@ -110,7 +353,7 @@ function loadPreset(key) {
   previewImg.style.display = 'block';
   dropPlaceholder.style.display = 'none';
 
-  // Highlight active preset color swatch if matches
+  // Highlight active preset color swatch
   highlightActiveSwatch(preset.brandColor);
 
   // Set topics
@@ -146,7 +389,9 @@ function renderTopicRows() {
         title="Remove topic" 
         onclick="removeTopicRow(${idx})"
         ${currentTopics.length <= 1 ? 'disabled style="opacity:0.2;"' : ''}
-      >&times;</button>
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     `;
     container.appendChild(row);
   });
@@ -182,7 +427,7 @@ function removeTopicRow(idx) {
 function suggestTopicsForBrand() {
   const company = document.getElementById('company-name').value.trim();
   if (!company) {
-    alert('Please enter a Company Name first so we can suggest relevant topics!');
+    alert('Please enter a Company Name first so we can suggest relevant topics.');
     document.getElementById('company-name').focus();
     return;
   }
@@ -234,8 +479,6 @@ function selectPaletteColor(hex) {
 function highlightActiveSwatch(hex) {
   const cleanHex = hex.toUpperCase();
   document.querySelectorAll('.swatch-btn').forEach(btn => {
-    const bg = btn.style.backgroundColor;
-    // approximate match
     btn.classList.remove('active');
   });
 }
@@ -302,9 +545,11 @@ function updateLivePreview() {
   const company = document.getElementById('company-name').value.trim() || 'Your Company';
   const hex = document.getElementById('brand-color-hex').value.trim() || '#6366F1';
   const contrast = getContrast(hex);
+  const authorName = document.getElementById('author-name').value.trim() || 'Editorial Board';
 
-  // Update company name
+  // Update company name & author
   document.getElementById('sim-company-name').textContent = company;
+  document.getElementById('sim-author-display').textContent = 'By ' + authorName;
   document.getElementById('sim-sample-title').textContent = currentTopics[0] || '1. Foundational Architecture & Scalability';
 
   // Update button & badge styling
@@ -325,18 +570,24 @@ function updateLivePreview() {
   if (currentLogoDataUrl) {
     simLogo.src = currentLogoDataUrl;
   } else {
-    // Generate monogram
+    // Generate monogram safely with Base64
     const initials = company.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || 'CO';
-    simLogo.src = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><rect width='32' height='32' rx='6' fill='${encodeURIComponent(hex)}'/><text x='16' y='21' font-family='sans-serif' font-weight='800' font-size='14' fill='${encodeURIComponent(contrast)}' text-anchor='middle'>${initials}</text></svg>`;
+    const svgStr = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="6" fill="' + hex + '"/><text x="16" y="21" font-family="sans-serif" font-weight="800" font-size="14" fill="' + contrast + '" text-anchor="middle">' + initials + '</text></svg>';
+    simLogo.src = 'data:image/svg+xml;base64,' + btoa(svgStr);
   }
 }
 
-// Handle Form Submission: Generate 10 Hosted Pages
+// -----------------------------------------------------------------------------
+// Form Submission: Generate 10 Hosted Pages with Real Author Data
+// -----------------------------------------------------------------------------
 async function handleGenerateSubmit(e) {
   e.preventDefault();
 
   const companyName = document.getElementById('company-name').value.trim();
   const brandColor = document.getElementById('brand-color-hex').value.trim();
+  const authorName = document.getElementById('author-name').value.trim();
+  const authorRole = document.getElementById('author-role').value.trim();
+  const authorBio = document.getElementById('author-bio').value.trim();
   const provider = document.getElementById('llm-provider-select').value;
   const apiKey = document.getElementById('api-key-input')?.value.trim() || '';
 
@@ -352,7 +603,7 @@ async function handleGenerateSubmit(e) {
     return;
   }
 
-  // Open Animated Progress Modal
+  // Open Animated Progress Modal (Clean SVG spinner)
   openGenerationModal(validTopics, companyName);
 
   try {
@@ -362,18 +613,28 @@ async function handleGenerateSubmit(e) {
       logoUrl: currentLogoDataUrl,
       topics: validTopics,
       llmProvider: provider,
-      apiKey: apiKey
+      apiKey: apiKey,
+      // Real author inputs
+      authorName,
+      authorRole,
+      authorBio
     };
+
+    const token = localStorage.getItem('wpg_auth_token');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = 'Bearer ' + token;
+    }
 
     const response = await fetch('/api/projects', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
       const err = await response.json();
-      throw new Error(err.message || 'Failed to generate pages');
+      throw new Error(err.error || 'Failed to generate pages');
     }
 
     const createdProject = await response.json();
@@ -390,7 +651,7 @@ async function handleGenerateSubmit(e) {
   }
 }
 
-// Modal Progress Control
+// Modal Progress Control (Zero emojis, SVG icons)
 function openGenerationModal(topics, companyName) {
   const modal = document.getElementById('generation-modal');
   const title = document.getElementById('modal-title');
@@ -406,7 +667,9 @@ function openGenerationModal(topics, companyName) {
 
   stepsList.innerHTML = topics.map((t, idx) => `
     <li class="progress-step-item" id="step-item-${idx}">
-      <span class="step-icon">⏳</span>
+      <span class="step-icon">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </span>
       <span>Page ${idx + 1}: ${escapeHtml(t)} (~1,000 words)</span>
     </li>
   `).join('');
@@ -421,11 +684,15 @@ async function completeProgressSteps(project) {
     const item = document.getElementById(`step-item-${i}`);
     if (item) {
       item.classList.add('active');
-      item.querySelector('.step-icon').textContent = '✍️';
-      await delay(120); // Smooth visual progression
+      item.querySelector('.step-icon').innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      `;
+      await delay(120);
       item.classList.remove('active');
       item.classList.add('done');
-      item.querySelector('.step-icon').textContent = '✅';
+      item.querySelector('.step-icon').innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="#10b981" stroke-width="2.5" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+      `;
       const pct = Math.round(((i + 1) / articles.length) * 100);
       barFill.style.width = `${pct}%`;
       status.textContent = `Hosted Page ${i + 1} of ${articles.length} compiled (${articles[i].wordCount} words)`;
@@ -435,9 +702,11 @@ async function completeProgressSteps(project) {
   // Done
   const modal = document.getElementById('generation-modal');
   modal.classList.add('success');
-  document.getElementById('modal-title').textContent = '🎉 All 10 Pages Hosted Successfully!';
+  document.getElementById('modal-title').textContent = 'All 10 Pages Hosted Successfully';
   status.textContent = `Your brand portal is now live with 10 dedicated 1000-word guides for ${project.companyName}.`;
-  document.getElementById('modal-spinner').innerHTML = '🚀';
+  document.getElementById('modal-spinner').innerHTML = `
+    <svg viewBox="0 0 24 24" width="36" height="36" stroke="#10b981" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="16 10 11 15 8 12"/></svg>
+  `;
 
   const viewHubBtn = document.getElementById('modal-view-hub-btn');
   viewHubBtn.href = `/sites/${project.id}`;
@@ -447,10 +716,30 @@ function closeGenerationModal() {
   document.getElementById('generation-modal').classList.remove('active');
 }
 
-// Fetch and render existing projects (Multi-use-case platform support)
+// -----------------------------------------------------------------------------
+// Multiple Use Cases & Ownership Directory
+// -----------------------------------------------------------------------------
+function setDirectoryFilter(filter) {
+  currentDirectoryFilter = filter;
+  document.querySelectorAll('.dir-filter-btn').forEach(b => b.classList.remove('active'));
+
+  if (filter === 'mine') {
+    document.getElementById('filter-my-sites-btn').classList.add('active');
+  } else {
+    document.getElementById('filter-all-sites-btn').classList.add('active');
+  }
+
+  fetchAndRenderProjects();
+}
+
 async function fetchAndRenderProjects() {
   try {
-    const res = await fetch('/api/projects');
+    const token = localStorage.getItem('wpg_auth_token');
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const url = currentDirectoryFilter === 'mine' ? '/api/projects?mine=true' : '/api/projects';
+    const res = await fetch(url, { headers });
     if (!res.ok) return;
     const projects = await res.json();
 
@@ -466,8 +755,8 @@ function renderProjectsGrid(projects) {
   if (!projects || projects.length === 0) {
     grid.innerHTML = `
       <div style="grid-column: 1 / -1; text-align:center; padding:50px; background:rgba(255,255,255,0.03); border:1px dashed var(--border-subtle); border-radius:16px;">
-        <h4 style="font-size:1.2rem; margin-bottom:8px;">No hosted sites created yet</h4>
-        <p style="color:var(--text-muted); font-size:0.95rem;">Use the generator above or pick one of the quick presets to generate your first 10-page brand publication!</p>
+        <h4 style="font-size:1.2rem; margin-bottom:8px;">No hosted sites found</h4>
+        <p style="color:var(--text-muted); font-size:0.95rem;">${currentDirectoryFilter === 'mine' ? 'You have not created any sites yet. Use the generator above to create your first site!' : 'No hosted sites in directory. Create one now!'}</p>
       </div>
     `;
     return;
@@ -476,7 +765,7 @@ function renderProjectsGrid(projects) {
   grid.innerHTML = projects.map(proj => {
     const articles = proj.articles || [];
     const totalWords = articles.reduce((sum, a) => sum + (a.wordCount || 0), 0);
-    const dateFormatted = new Date(proj.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const authorName = proj.author?.name || proj.ownerName || 'Editorial Team';
 
     return `
       <div class="site-card">
@@ -489,6 +778,9 @@ function renderProjectsGrid(projects) {
               <span>${proj.brandColor}</span> &bull; 
               <span>${articles.length} Hosted Pages</span> &bull;
               <span>${totalWords.toLocaleString()} Words</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
+              Author: <strong>${escapeHtml(authorName)}</strong>
             </div>
           </div>
         </div>
@@ -505,14 +797,24 @@ function renderProjectsGrid(projects) {
 
         <div class="site-card-actions">
           <a href="/sites/${proj.id}" target="_blank" class="btn btn-brand">
-            <span>🌐</span> Open Brand Hub
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <span>Open Brand Hub</span>
           </a>
           <button type="button" class="btn btn-outline" onclick="copySiteLink('${proj.id}', this)">
-            <span>📋</span> Copy URL
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Copy URL</span>
           </button>
-          <button type="button" class="btn-delete-site" onclick="deleteProject('${proj.id}')">
-            🗑️ Delete Campaign
-          </button>
+          
+          ${proj.isOwner ? `
+            <button type="button" class="btn-delete-site" onclick="deleteProject('${proj.id}')">
+              <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <span>Delete Hosted Site</span>
+            </button>
+          ` : `
+            <div style="grid-column: span 2; text-align:center; font-size:0.75rem; color:var(--text-muted); padding:4px;">
+              Hosted by ${escapeHtml(proj.ownerName || 'Creator')}
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -520,11 +822,20 @@ function renderProjectsGrid(projects) {
 }
 
 async function deleteProject(id) {
-  if (!confirm('Are you sure you want to delete this hosted campaign and all its pages?')) return;
+  if (!confirm('Are you sure you want to permanently delete this hosted campaign and all its 10 blog pages?')) {
+    return;
+  }
+  const token = localStorage.getItem('wpg_auth_token');
+  const headers = {};
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+
   try {
-    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE', headers });
+    const data = await res.json();
     if (res.ok) {
       fetchAndRenderProjects();
+    } else {
+      alert(data.error || 'Failed to delete site.');
     }
   } catch (err) {
     alert('Failed to delete: ' + err.message);
@@ -536,7 +847,7 @@ function copySiteLink(id, btn) {
   if (navigator.clipboard) {
     navigator.clipboard.writeText(url).then(() => {
       const orig = btn.innerHTML;
-      btn.innerHTML = '<span>✅</span> Copied!';
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" stroke="#10b981" stroke-width="2.5" fill="none"><polyline points="20 6 9 17 4 12"/></svg><span>Copied!</span>';
       setTimeout(() => btn.innerHTML = orig, 2000);
     });
   }
@@ -549,10 +860,10 @@ function delay(ms) {
 
 function escapeHtml(str) {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function escapeHtmlAttr(str) {
   if (!str) return '';
-  return str.replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }

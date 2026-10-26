@@ -68,7 +68,7 @@ function fallbackCopy(text, btn) {
 
 function showCopiedFeedback(btn) {
   const originalHtml = btn.innerHTML;
-  btn.innerHTML = '<span>✅</span> Link Copied!';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" stroke="#10b981" stroke-width="2.5" fill="none"><polyline points="20 6 9 17 4 12"/></svg> <span>Link Copied!</span>';
   btn.style.borderColor = 'var(--brand-color)';
   setTimeout(() => {
     btn.innerHTML = originalHtml;
