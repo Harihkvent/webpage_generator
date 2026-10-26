@@ -405,7 +405,11 @@ Do NOT include markdown backticks or <html>/<body> tags. Ensure the text is at l
             title: topic,
             topic,
             excerpt: `Comprehensive deep dive into ${topic} curated by ${companyName}.`,
-            author: { name: 'Editorial Staff', role: 'Strategic Intelligence', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80' },
+            author: authorInfo || {
+              name: `${companyName} Editorial Team`,
+              role: 'Research & Strategy Contributor',
+              avatar: ''
+            },
             publishDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
             wordCount,
             readingTimeMinutes: Math.max(5, Math.ceil(wordCount / 180)),
