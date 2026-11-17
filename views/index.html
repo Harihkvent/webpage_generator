@@ -21,7 +21,7 @@
         </div>
         <div class="studio-brand-text">
           <span class="studio-brand-title">Webpage Generator</span>
-          <span class="studio-brand-badge">Multi-Use Case Portal</span>
+          <span class="studio-brand-badge">Full-Stack Enterprise Studio</span>
         </div>
       </a>
 
@@ -60,7 +60,7 @@
         <span>Automated 10-Page Web Publication Platform</span>
       </div>
       <h1 class="hero-title">Create, Style, &amp; Host <span class="gradient-text">10 Dedicated Pages</span> for Any Brand</h1>
-      <p class="hero-description">Enter your company details, brand hex color, real author profile, and up to 10 topics. Our engine writes well-formatted 1000+ word deep-dive posts for every single topic and hosts them with a consistent, branded design.</p>
+      <p class="hero-description">Enter your company details, brand hex color, real author profile, and up to 10 topics. Our engine writes well-formatted 1000+ word deep-dive posts for every single topic, with real-time SSE progress streaming and in-app content editing.</p>
     </section>
 
     <!-- Quick Presets & Multiple Use Cases Bar -->
@@ -99,6 +99,22 @@
             <span>Configure Brand, Author &amp; 10 Topics</span>
           </h2>
           <p class="panel-subtitle">Provide your company details, genuine author profile, and enter up to 10 topics to be generated and hosted.</p>
+
+          <!-- Guest Authentication Notice -->
+          <div class="guest-auth-callout" id="guest-auth-callout" style="display:none;">
+            <div class="callout-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <div class="callout-text">
+              <strong>Account Required:</strong> Only logged-in users can create, edit, or delete campaigns. Guest users can preview and read sites. Please <a href="javascript:void(0)" onclick="openAuthModal('login')">Sign In</a> or <a href="javascript:void(0)" onclick="openAuthModal('signup')">Create a Free Account</a>.
+            </div>
+          </div>
+
+          <!-- Non-permanent sandbox notice -->
+          <div class="non-permanent-badge-strip">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>Temporary Sandbox: User-created sites expire in 24 hours. Export ZIP to save permanently!</span>
+          </div>
         </header>
 
         <form id="generator-form" onsubmit="handleGenerateSubmit(event)">
@@ -358,17 +374,21 @@
       <div class="directory-header">
         <div>
           <h2 class="directory-title">Hosted Platforms &amp; Campaigns</h2>
-          <p class="directory-subtitle">Browse all hosted sites. You can delete and manage the sites you own.</p>
+          <p class="directory-subtitle">Browse, manage, edit content, and export hosted brand platforms.</p>
         </div>
         
-        <!-- Filter Tabs: My Hosted Sites vs All Sites -->
+        <!-- Filter Tabs: All Sites vs My Sites vs Trash / Undelete -->
         <div class="directory-filter-tabs">
           <button type="button" class="dir-filter-btn active" id="filter-all-sites-btn" onclick="setDirectoryFilter('all')">
             <span>All Hosted Sites</span>
           </button>
           <button type="button" class="dir-filter-btn" id="filter-my-sites-btn" onclick="setDirectoryFilter('mine')">
             <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>My Sites Only</span>
+            <span>My Active Sites</span>
+          </button>
+          <button type="button" class="dir-filter-btn" id="filter-trash-btn" onclick="setDirectoryFilter('trash')" title="Restore soft-deleted campaigns">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>Trash / Undelete</span>
           </button>
           <button type="button" class="dir-filter-btn" onclick="fetchAndRenderProjects()" title="Refresh Directory">
             <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -377,8 +397,28 @@
         </div>
       </div>
 
+      <!-- Real-time Directory Search & Filter Bar -->
+      <div class="directory-search-bar-row">
+        <div class="search-input-wrapper">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="dir-search-input" class="dir-search-input" placeholder="Search platforms by brand name, topic keyword, or author..." oninput="handleDirectorySearch(this.value)" />
+          <button type="button" id="dir-search-clear" class="btn-clear-search" onclick="clearDirectorySearch()" style="display:none;" title="Clear search">&times;</button>
+        </div>
+      </div>
+
       <div class="sites-grid" id="sites-grid">
         <!-- Rendered dynamically -->
+      </div>
+
+      <!-- Directory Pagination Controls -->
+      <div class="directory-pagination-bar" id="directory-pagination" style="display:none;">
+        <button type="button" class="btn-page-nav" id="btn-page-prev" onclick="goToPage(currentPage - 1)">
+          &larr; Previous
+        </button>
+        <span class="page-indicator" id="page-indicator">Page 1 of 1</span>
+        <button type="button" class="btn-page-nav" id="btn-page-next" onclick="goToPage(currentPage + 1)">
+          Next &rarr;
+        </button>
       </div>
     </section>
   </main>
@@ -440,7 +480,7 @@
     </div>
   </div>
 
-  <!-- Animated Generation Modal (Zero emojis, clean SVG spinner) -->
+  <!-- Real-Time SSE Generation Progress Modal -->
   <div class="modal-backdrop" id="generation-modal" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-icon-spinner" id="modal-spinner">
@@ -449,14 +489,16 @@
         </svg>
       </div>
       <h3 class="modal-title" id="modal-title">Generating 10 Hosted Pages...</h3>
-      <p class="modal-status-text" id="modal-status">Writing 1000-word deep-dive articles and assembling layout...</p>
+      <p class="modal-status-text" id="modal-status">Streaming real-time generation...</p>
 
       <div class="progress-bar-track">
-        <div class="progress-bar-fill" id="progress-bar-fill"></div>
+        <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
       </div>
 
+      <div class="progress-percentage-label" id="progress-percentage-label">0% Complete</div>
+
       <ul class="progress-steps-list" id="progress-steps-list">
-        <!-- Step items injected by JS -->
+        <!-- Live step indicators injected by SSE -->
       </ul>
 
       <div class="modal-success-actions" id="modal-success-actions">
@@ -468,6 +510,128 @@
           Done &amp; Close
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Interactive Campaign & Article Content Manager Modal -->
+  <div class="modal-backdrop" id="manager-modal" aria-hidden="true">
+    <div class="modal-dialog manager-dialog">
+      <div class="manager-modal-header">
+        <div class="manager-title-group">
+          <span class="manager-header-badge" id="manager-site-badge">Brand Campaign</span>
+          <h3 class="manager-modal-title" id="manager-site-title">Campaign Name</h3>
+          <span class="manager-header-subtitle" id="manager-site-meta">10 Topics &bull; Ready to publish</span>
+        </div>
+        <div class="manager-header-actions">
+          <button type="button" class="btn btn-outline btn-sm" onclick="openEditBrandModal()">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <span>Edit Branding</span>
+          </button>
+          <button type="button" class="modal-close-corner" onclick="closeManagerModal()" title="Close">&times;</button>
+        </div>
+      </div>
+
+      <div class="manager-modal-body">
+        <!-- List View: 10 topics with word count, preview link, edit button and regenerate button -->
+        <div id="manager-articles-list-view">
+          <div class="manager-articles-table-wrapper">
+            <table class="manager-articles-table">
+              <thead>
+                <tr>
+                  <th style="width:40px;">#</th>
+                  <th>Topic &amp; Headline</th>
+                  <th style="width:90px;">Words</th>
+                  <th style="width:110px;">Reading Time</th>
+                  <th style="width:230px; text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="manager-articles-tbody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Edit View: Interactive Article Content Editor -->
+        <div id="manager-article-edit-view" style="display:none;">
+          <div class="edit-view-back-row">
+            <button type="button" class="btn btn-outline btn-sm" onclick="showArticleListView()">
+              &larr; Back to Topics List
+            </button>
+            <span class="edit-article-badge" id="edit-article-badge">Interactive Article Editor</span>
+          </div>
+
+          <form id="form-edit-article" onsubmit="handleSaveArticleEdits(event)">
+            <input type="hidden" id="edit-article-slug" />
+            <div class="form-section">
+              <label class="sub-label">Article Headline</label>
+              <input type="text" id="edit-article-title" class="form-control-input" required />
+            </div>
+
+            <div class="form-section">
+              <label class="sub-label">Executive Summary &amp; Key Takeaways</label>
+              <textarea id="edit-article-summary" class="form-control-input" rows="3"></textarea>
+            </div>
+
+            <div class="form-section">
+              <label class="sub-label">Estimated Reading Time</label>
+              <input type="text" id="edit-article-reading-time" class="form-control-input" placeholder="e.g. ~8 min read" />
+            </div>
+
+            <div class="form-section">
+              <label class="sub-label">Thematic Sections &amp; Core Content</label>
+              <div id="edit-article-sections-container">
+                <!-- Injected sections inputs -->
+              </div>
+            </div>
+
+            <div class="edit-submit-bar">
+              <button type="button" class="btn btn-outline" onclick="showArticleListView()">Cancel</button>
+              <button type="submit" class="btn btn-brand" id="btn-save-article-submit">
+                <span>Save Live Changes</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Campaign Brand Modal -->
+  <div class="modal-backdrop" id="edit-brand-modal" aria-hidden="true">
+    <div class="modal-dialog auth-dialog">
+      <h3 class="modal-title" style="margin-bottom:16px;">Update Brand &amp; Author Identity</h3>
+      <form id="form-update-brand" onsubmit="handleUpdateBrandSubmit(event)">
+        <input type="hidden" id="update-brand-site-id" />
+        <div class="form-section">
+          <label class="sub-label">Company Name</label>
+          <input type="text" id="update-company-name" class="form-control-input" required />
+        </div>
+        <div class="form-section">
+          <label class="sub-label">Brand Hex Color</label>
+          <div class="color-picker-wrapper">
+            <input type="color" id="update-brand-picker" class="color-input-native" oninput="document.getElementById('update-brand-hex').value = this.value" />
+            <input type="text" id="update-brand-hex" class="hex-text-input" maxlength="7" required oninput="document.getElementById('update-brand-picker').value = this.value" />
+          </div>
+        </div>
+        <div class="form-section">
+          <label class="sub-label">Author / Byline Name</label>
+          <input type="text" id="update-author-name" class="form-control-input" />
+        </div>
+        <div class="form-section">
+          <label class="sub-label">Author Designation / Role</label>
+          <input type="text" id="update-author-role" class="form-control-input" />
+        </div>
+        <div class="form-section">
+          <label class="sub-label">Author Bio</label>
+          <input type="text" id="update-author-bio" class="form-control-input" />
+        </div>
+        <div class="auth-submit-row">
+          <button type="button" class="btn btn-outline" onclick="closeEditBrandModal()">Cancel</button>
+          <button type="submit" class="btn btn-brand" id="btn-update-brand-submit">Save Brand Changes</button>
+        </div>
+      </form>
+      <button type="button" class="modal-close-corner" onclick="closeEditBrandModal()" title="Close">&times;</button>
     </div>
   </div>
 

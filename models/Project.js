@@ -1,6 +1,7 @@
 /**
  * Project.js
  * Mongoose Schema for Hosted Multi-Page Brand Campaigns
+ * Supports soft-delete (with undelete/restore) and non-permanent lifecycle (TTL expiration)
  */
 
 const mongoose = require('mongoose');
@@ -17,6 +18,10 @@ const ProjectSchema = new mongoose.Schema(
     ownerId: { type: String, index: true, default: null },
     ownerName: { type: String, default: '' },
     ownerEmail: { type: String, default: '' },
+    isPermanent: { type: Boolean, default: false },
+    expiresAt: { type: String, default: null, index: true }, // Non-permanent expiration
+    isDeleted: { type: Boolean, default: false, index: true }, // Soft-delete for undelete
+    deletedAt: { type: String, default: null },
     createdAt: { type: String, default: () => new Date().toISOString() },
     updatedAt: { type: String, default: () => new Date().toISOString() }
   },

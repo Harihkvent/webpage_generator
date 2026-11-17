@@ -3,9 +3,12 @@
  * Express server for Webpage Generator
  * Hosts both the Studio Portal and all generated 10-page brand websites
  * Features:
- * - Authentication & Authorization (Only owners can delete/modify their sites)
- * - Authentic Author Management (Zero fake people data)
- * - Zero Emojis (Clean SVG vector icons throughout)
+ * - Enterprise Security: Helmet, Rate Limiting & Input Sanitization
+ * - Zod Schema Validation on all mutation endpoints
+ * - Asynchronous Background Generation with Server-Sent Events (SSE) streaming
+ * - Interactive Content Management (Full CRUD on campaigns and articles)
+ * - Single-article regeneration without wiping entire site
+ * - Ownership & Authorization guardrails
  * - MongoDB Atlas integration with local file fallback
  * - Vercel Serverless Ready
  */
@@ -17,6 +20,8 @@ const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
 const archiver = require('archiver');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const { connectDB } = require('./services/db');
 
@@ -24,8 +29,14 @@ const {
   getAllProjects,
   getProjectById,
   getProjectsByOwner,
+  getProjectsPaginated,
   saveProject,
+  updateProject,
+  updateArticle,
+  replaceArticleInProject,
   deleteProject,
+  undeleteProject,
+  cleanupExpiredProjects,
   generateMonogramSvg,
   generateAuthorAvatarSvg
 } = require('./services/siteStorage');
@@ -48,6 +59,26 @@ const {
   renderArticlePage
 } = require('./services/templateRenderer');
 
+const {
+  cleanHtml,
+  cleanText,
+  signupSchema,
+  loginSchema,
+  createProjectSchema,
+  updateProjectSchema,
+  updateArticleSchema,
+  validateBody
+} = require('./services/validators');
+
+const {
+  createJob,
+  getJob,
+  updateJob,
+  completeJob,
+  failJob,
+  subscribeToJob
+} = require('./services/jobManager');
+
 const app = express();
 const PORT = process.env.PORT || 5050;
 
@@ -56,10 +87,46 @@ connectDB().catch(err => {
   console.warn('[MongoDB] Initial connection notice:', err.message);
 });
 
-// Middleware
+// -----------------------------------------------------------------------------
+// Security Middleware
+// -----------------------------------------------------------------------------
+app.use(helmet({
+  contentSecurityPolicy: false, // Allows inline SVGs, Google Fonts and Unsplash images
+  crossOriginEmbedderPolicy: false
+}));
+
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+
+// Rate Limiters
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this IP, please try again later.' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Please try again after 15 minutes.' }
+});
+
+const generationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Campaign generation limit reached for this hour. Please try again later.' }
+});
+
+app.use('/api/', generalLimiter);
+app.use('/api/auth/', authLimiter);
+app.use('/api/projects', generationLimiter);
 
 // Static asset folders
 app.use('/css', express.static(path.join(__dirname, 'public', 'css')));
@@ -67,7 +134,7 @@ app.use('/js', express.static(path.join(__dirname, 'public', 'js')));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 
 // -----------------------------------------------------------------------------
-// Auth Middleware
+// Auth Extraction Middleware
 // -----------------------------------------------------------------------------
 async function extractUser(req, res, next) {
   try {
@@ -87,6 +154,18 @@ async function extractUser(req, res, next) {
 app.use(extractUser);
 
 // -----------------------------------------------------------------------------
+// Auth Guard Middleware: Only logged-in users can create, edit, delete, or undelete
+// -----------------------------------------------------------------------------
+function requireAuth(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({
+      error: 'Authentication required. Only logged-in users can create, edit, delete, or undelete campaigns. Please sign in or create an account.'
+    });
+  }
+  next();
+}
+
+// -----------------------------------------------------------------------------
 // Studio Dashboard Route
 // -----------------------------------------------------------------------------
 app.get('/', (req, res) => {
@@ -97,22 +176,22 @@ app.get('/', (req, res) => {
 // API Endpoints: Auth
 // -----------------------------------------------------------------------------
 
-// Sign up new user
-app.post('/api/auth/signup', async (req, res) => {
+// Sign up new user with Zod validation
+app.post('/api/auth/signup', validateBody(signupSchema), async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
-    const result = await registerUser({ name, email, password });
+    const { name, email, password } = req.validatedBody;
+    const result = await registerUser({ name: cleanText(name), email: cleanText(email), password });
     res.status(201).json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// Log in existing user
-app.post('/api/auth/login', async (req, res) => {
+// Log in existing user with Zod validation
+app.post('/api/auth/login', validateBody(loginSchema), async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-    const result = await loginUser(email, password);
+    const { email, password } = req.validatedBody;
+    const result = await loginUser(cleanText(email), password);
     res.json(result);
   } catch (err) {
     res.status(401).json({ error: err.message });
@@ -152,36 +231,89 @@ app.get('/api/config', (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
+// API Endpoints: Jobs & Real-Time SSE Progress
+// -----------------------------------------------------------------------------
+
+// SSE stream for real-time generation progress
+app.get('/api/jobs/:jobId/stream', (req, res) => {
+  subscribeToJob(req.params.jobId, req, res);
+});
+
+// Poll job status
+app.get('/api/jobs/:jobId', (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+  res.json({
+    id: job.id,
+    status: job.status,
+    progress: job.progress,
+    currentStep: job.currentStep,
+    totalSteps: job.totalSteps,
+    message: job.message,
+    result: job.status === 'completed' ? job.result : undefined,
+    error: job.error
+  });
+});
+
+// -----------------------------------------------------------------------------
 // API Endpoints: Projects (Hosted Sites)
 // -----------------------------------------------------------------------------
 
-// List all projects (supports ?mine=true filter and attaches isOwner flag)
-app.get('/api/projects', async (req, res) => {
+// List projects (supports pagination, search, status, ?mine=true filter, and attaches isOwner flag)
+app.get('/api/projects', async (req, res, next) => {
   try {
     const onlyMine = req.query.mine === 'true';
     const currentUserId = req.user ? req.user.id : null;
+    const search = req.query.search || '';
+    const page = req.query.page;
+    const limit = req.query.limit;
+    const status = req.query.status || (req.query.trash === 'true' ? 'deleted' : 'active');
 
-    let projects;
-    if (onlyMine && currentUserId) {
-      projects = await getProjectsByOwner(currentUserId);
-    } else {
-      projects = await getAllProjects();
+    // If neither page nor search is explicitly set and all=true requested, return plain array for legacy compatibility
+    if (!page && !search && req.query.all === 'true') {
+      let projects;
+      if (onlyMine && currentUserId) {
+        projects = await getProjectsByOwner(currentUserId, status);
+      } else {
+        projects = await getAllProjects(status === 'all' || status === 'deleted');
+        if (status === 'deleted') projects = projects.filter(p => p.isDeleted);
+        else if (status === 'active') projects = projects.filter(p => !p.isDeleted);
+      }
+
+      const projectsWithPerms = projects.map(p => ({
+        ...p,
+        isOwner: Boolean(currentUserId && p.ownerId === currentUserId)
+      }));
+      return res.json(projectsWithPerms);
     }
 
-    // Attach ownership status relative to requesting user
-    const projectsWithPerms = projects.map(p => ({
+    const result = await getProjectsPaginated({
+      page: page || 1,
+      limit: limit || 12,
+      search,
+      ownerId: onlyMine ? currentUserId : null,
+      status
+    });
+
+    const projectsWithPerms = result.projects.map(p => ({
       ...p,
-      isOwner: Boolean(currentUserId && p.ownerId === currentUserId) || (!p.ownerId && !currentUserId)
+      isOwner: Boolean(currentUserId && p.ownerId === currentUserId)
     }));
 
-    res.json(projectsWithPerms);
+    // Attach pagination headers and return enriched structure
+    res.json({
+      projects: projectsWithPerms,
+      pagination: result.pagination
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // Get single project
-app.get('/api/projects/:id', async (req, res) => {
+app.get('/api/projects/:id', async (req, res, next) => {
   try {
     const project = await getProjectById(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -192,52 +324,41 @@ app.get('/api/projects/:id', async (req, res) => {
       isOwner: Boolean(currentUserId && project.ownerId === currentUserId)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// Create and generate 10 hosted pages for a new campaign
-app.post('/api/projects', async (req, res) => {
+// Create and generate 10 hosted pages for a new campaign (Only Logged-in Users Can Create)
+app.post('/api/projects', requireAuth, validateBody(createProjectSchema), async (req, res, next) => {
   try {
     const {
       companyName,
       brandColor = '#6366F1',
-      logoUrl,
+      logoUrl = '',
       topics = [],
       llmProvider = 'builtin',
       apiKey = '',
-      // Real author inputs (no fake personas)
       authorName = '',
       authorRole = '',
       authorBio = '',
       authorAvatar = ''
-    } = req.body;
+    } = req.validatedBody;
 
-    if (!companyName || !companyName.trim()) {
-      return res.status(400).json({ error: 'Company Name is required' });
-    }
-
-    const cleanTopics = (Array.isArray(topics) ? topics : [])
-      .map(t => (typeof t === 'string' ? t.trim() : ''))
-      .filter(Boolean)
-      .slice(0, 10);
-
+    const cleanTopics = topics.map(t => cleanText(t)).filter(Boolean).slice(0, 10);
     if (cleanTopics.length === 0) {
       return res.status(400).json({ error: 'At least 1 topic is required (up to 10).' });
     }
 
-    // Determine final logo: provided URL, uploaded base64 data, or generated SVG monogram
-    const finalLogo = logoUrl && logoUrl.trim() 
-      ? logoUrl.trim() 
+    const finalLogo = logoUrl && logoUrl.trim()
+      ? logoUrl.trim()
       : generateMonogramSvg(companyName, brandColor);
 
-    // Build real author profile (strictly user-defined or clean company fallback)
     const effectiveAuthorName = authorName && authorName.trim()
-      ? authorName.trim()
+      ? cleanText(authorName)
       : (req.user ? req.user.name : `${companyName.trim()} Editorial Team`);
 
     const effectiveAuthorRole = authorRole && authorRole.trim()
-      ? authorRole.trim()
+      ? cleanText(authorRole)
       : 'Research & Strategy Contributor';
 
     const effectiveAuthorAvatar = authorAvatar && authorAvatar.trim()
@@ -245,7 +366,7 @@ app.post('/api/projects', async (req, res) => {
       : generateAuthorAvatarSvg(effectiveAuthorName, brandColor);
 
     const effectiveAuthorBio = authorBio && authorBio.trim()
-      ? authorBio.trim()
+      ? cleanText(authorBio)
       : `Authoritative intelligence and strategic insights published by ${companyName.trim()}.`;
 
     const authorProfile = {
@@ -256,78 +377,227 @@ app.post('/api/projects', async (req, res) => {
     };
 
     const projectId = `site-${slugify(companyName)}-${Date.now().toString(36)}`;
+    const currentUserId = req.user.id;
+    const currentUserName = req.user.name;
+    const currentUserEmail = req.user.email;
 
-    // Generate each 1000-word article with authentic author details
-    const generatedArticles = [];
-    for (let i = 0; i < cleanTopics.length; i++) {
-      const topic = cleanTopics[i];
-      const article = await generateArticleWithOptionalLLM(
-        topic,
-        companyName,
-        brandColor,
-        i,
-        { provider: llmProvider, apiKey },
-        authorProfile
-      );
-      generatedArticles.push(article);
+    // Non-permanent campaign lifecycle: expires in 24 hours
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    // Check if synchronous execution is specifically requested
+    const isSync = req.query.sync === 'true';
+
+    if (isSync) {
+      const generatedArticles = [];
+      for (let i = 0; i < cleanTopics.length; i++) {
+        const topic = cleanTopics[i];
+        const article = await generateArticleWithOptionalLLM(
+          topic,
+          companyName,
+          brandColor,
+          i,
+          { provider: llmProvider, apiKey },
+          authorProfile
+        );
+        generatedArticles.push(article);
+      }
+
+      const newProject = {
+        id: projectId,
+        companyName: companyName.trim(),
+        brandColor: brandColor.trim(),
+        logoUrl: finalLogo,
+        topics: cleanTopics,
+        articles: generatedArticles,
+        author: authorProfile,
+        ownerId: currentUserId,
+        ownerName: currentUserName,
+        ownerEmail: currentUserEmail,
+        isPermanent: false,
+        expiresAt,
+        isDeleted: false,
+        createdAt: new Date().toISOString()
+      };
+
+      await saveProject(newProject);
+      return res.status(201).json(newProject);
     }
 
-    const newProject = {
-      id: projectId,
-      companyName: companyName.trim(),
-      brandColor: brandColor.trim(),
-      logoUrl: finalLogo,
-      topics: cleanTopics,
-      articles: generatedArticles,
-      author: authorProfile,
-      // Record owner for authorization checks
-      ownerId: req.user ? req.user.id : 'usr_demo_creator',
-      ownerName: req.user ? req.user.name : 'Guest Creator',
-      ownerEmail: req.user ? req.user.email : 'demo@webpagegenerator.com',
-      createdAt: new Date().toISOString()
-    };
+    // Default: Asynchronous background generation with SSE job tracker
+    const job = createJob('generate_project', {
+      totalSteps: cleanTopics.length,
+      initialMessage: `Initializing campaign for "${companyName}"...`
+    });
 
-    await saveProject(newProject);
+    // Respond immediately with 202 Accepted and Job ID
+    res.status(202).json({
+      success: true,
+      jobId: job.id,
+      message: 'Generation started in background'
+    });
 
-    res.status(201).json(newProject);
+    // Run async generation task
+    (async () => {
+      try {
+        updateJob(job.id, {
+          status: 'in_progress',
+          progress: 5,
+          message: `Setting up brand identity and styling...`
+        });
+
+        const generatedArticles = [];
+        for (let i = 0; i < cleanTopics.length; i++) {
+          const topic = cleanTopics[i];
+          const pct = Math.round(10 + (i / cleanTopics.length) * 80);
+
+          updateJob(job.id, {
+            currentStep: i + 1,
+            progress: pct,
+            message: `Generating topic ${i + 1}/${cleanTopics.length}: "${topic}"...`
+          });
+
+          const article = await generateArticleWithOptionalLLM(
+            topic,
+            companyName,
+            brandColor,
+            i,
+            { provider: llmProvider, apiKey },
+            authorProfile
+          );
+          generatedArticles.push(article);
+        }
+
+        updateJob(job.id, {
+          progress: 95,
+          message: 'Saving hosted campaign and building navigation index...'
+        });
+
+        const newProject = {
+          id: projectId,
+          companyName: companyName.trim(),
+          brandColor: brandColor.trim(),
+          logoUrl: finalLogo,
+          topics: cleanTopics,
+          articles: generatedArticles,
+          author: authorProfile,
+          ownerId: currentUserId,
+          ownerName: currentUserName,
+          ownerEmail: currentUserEmail,
+          isPermanent: false,
+          expiresAt,
+          isDeleted: false,
+          createdAt: new Date().toISOString()
+        };
+
+        await saveProject(newProject);
+        completeJob(job.id, newProject);
+      } catch (err) {
+        console.error('[Async Generation Error]:', err);
+        failJob(job.id, err.message || 'Internal generation error');
+      }
+    })();
   } catch (err) {
-    console.error('Error generating project:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    next(err);
   }
 });
 
-// Delete a project (enforces authorization: only the owner can delete their site)
-app.delete('/api/projects/:id', async (req, res) => {
+// Update Project Branding & Metadata (PUT - Only Logged-in Owner)
+app.put('/api/projects/:id', requireAuth, validateBody(updateProjectSchema), async (req, res, next) => {
   try {
-    const currentUserId = req.user ? req.user.id : null;
+    const currentUserId = req.user.id;
+    const result = await updateProject(req.params.id, req.validatedBody, currentUserId);
+    if (!result.success) {
+      return res.status(result.error.includes('Unauthorized') ? 403 : 404).json({ error: result.error });
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update an individual article (PUT - Only Logged-in Owner)
+app.put('/api/projects/:id/articles/:slug', requireAuth, validateBody(updateArticleSchema), async (req, res, next) => {
+  try {
+    const currentUserId = req.user.id;
+    const result = await updateArticle(req.params.id, req.params.slug, req.validatedBody, currentUserId);
+    if (!result.success) {
+      return res.status(result.error.includes('Unauthorized') ? 403 : 404).json({ error: result.error });
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Regenerate a single article in a campaign (POST - Only Logged-in Owner)
+app.post('/api/projects/:id/articles/:slug/regenerate', requireAuth, async (req, res, next) => {
+  try {
+    const currentUserId = req.user.id;
     const project = await getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    if (project.ownerId && project.ownerId !== currentUserId && project.ownerId !== 'usr_demo_creator') {
+      return res.status(403).json({ error: 'Unauthorized: You can only regenerate articles on your own sites.' });
     }
 
-    // If project has an assigned owner, enforce ownership
-    if (project.ownerId && project.ownerId !== 'usr_demo_creator') {
-      if (!currentUserId || project.ownerId !== currentUserId) {
-        return res.status(403).json({
-          error: 'Unauthorized: You can only delete sites you created.'
-        });
-      }
-    }
+    const articleIndex = (project.articles || []).findIndex(a => a.slug === req.params.slug);
+    if (articleIndex === -1) return res.status(404).json({ error: 'Article not found' });
 
+    const existingArticle = project.articles[articleIndex];
+    const topicTitle = existingArticle.topic || existingArticle.title || project.topics[articleIndex] || 'Featured Topic';
+
+    const { llmProvider = 'builtin', apiKey = '' } = req.body || {};
+
+    const freshArticle = await generateArticleWithOptionalLLM(
+      topicTitle,
+      project.companyName,
+      project.brandColor,
+      articleIndex,
+      { provider: llmProvider, apiKey },
+      project.author
+    );
+
+    freshArticle.slug = existingArticle.slug;
+
+    const result = await replaceArticleInProject(req.params.id, req.params.slug, freshArticle, currentUserId);
+    res.json({ success: true, article: freshArticle, project: result.project });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete a project (DELETE - Soft delete with owner authorization)
+app.delete('/api/projects/:id', requireAuth, async (req, res, next) => {
+  try {
+    const currentUserId = req.user.id;
     const result = await deleteProject(req.params.id, currentUserId);
     if (!result.success) {
-      return res.status(403).json({ error: result.error || 'Failed to delete' });
+      return res.status(result.error.includes('Unauthorized') ? 403 : 400).json({ error: result.error });
     }
 
-    res.json({ success: true, message: 'Hosted site deleted successfully' });
+    res.json({ success: true, message: result.message || 'Hosted site moved to trash' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
+  }
+});
+
+// Undelete / Restore a soft-deleted project (POST - Only Logged-in Owner)
+app.post('/api/projects/:id/undelete', requireAuth, async (req, res, next) => {
+  try {
+    const currentUserId = req.user.id;
+    const result = await undeleteProject(req.params.id, currentUserId);
+    if (!result.success) {
+      return res.status(result.error.includes('Unauthorized') ? 403 : 400).json({ error: result.error });
+    }
+
+    res.json({ success: true, message: result.message || 'Hosted site restored successfully', project: result.project });
+  } catch (err) {
+    next(err);
   }
 });
 
 // Export as standalone static ZIP (All 10 pages + hub + CSS)
-app.get('/api/projects/:id/export', async (req, res) => {
+app.get('/api/projects/:id/export', async (req, res, next) => {
   try {
     const project = await getProjectById(req.params.id);
     if (!project) return res.status(404).send('Project not found');
@@ -360,7 +630,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
 
     archive.finalize();
   } catch (err) {
-    res.status(500).send('Export error: ' + err.message);
+    next(err);
   }
 });
 
@@ -369,7 +639,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // 1. Hosted Brand Publication Hub (Lists all 10 blog topics)
-app.get('/sites/:siteId', async (req, res) => {
+app.get('/sites/:siteId', async (req, res, next) => {
   try {
     const project = await getProjectById(req.params.siteId);
     if (!project) {
@@ -388,12 +658,12 @@ app.get('/sites/:siteId', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
-    res.status(500).send('Server Error: ' + err.message);
+    next(err);
   }
 });
 
 // 2. Individual Dedicated 1000-Word Hosted Blog Post
-app.get('/sites/:siteId/blog/:slug', async (req, res) => {
+app.get('/sites/:siteId/blog/:slug', async (req, res, next) => {
   try {
     const project = await getProjectById(req.params.siteId);
     if (!project) {
@@ -417,8 +687,20 @@ app.get('/sites/:siteId/blog/:slug', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
-    res.status(500).send('Server Error: ' + err.message);
+    next(err);
   }
+});
+
+// -----------------------------------------------------------------------------
+// Centralized Error Handler Middleware
+// -----------------------------------------------------------------------------
+app.use((err, req, res, next) => {
+  console.error('[Unhandled API Error]:', err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({
+    error: err.message || 'An unexpected server error occurred',
+    status
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -477,6 +759,9 @@ async function seedDefaultProjectIfEmpty() {
       ownerId: 'usr_demo_creator',
       ownerName: 'Demo Creator',
       ownerEmail: 'demo@webpagegenerator.com',
+      isPermanent: true,
+      expiresAt: null,
+      isDeleted: false,
       createdAt: new Date().toISOString()
     };
 
@@ -484,6 +769,11 @@ async function seedDefaultProjectIfEmpty() {
     console.log('Seeded initial demo campaign successfully!');
   }
 }
+
+// Background cleanup: auto-purge expired non-permanent campaigns and 24h+ trash
+setInterval(() => {
+  cleanupExpiredProjects();
+}, 15 * 60 * 1000);
 
 // Start Server (when run locally, not inside Vercel serverless function)
 if (!process.env.VERCEL) {
@@ -494,9 +784,12 @@ if (!process.env.VERCEL) {
     console.log(` - Live Demo Campaign: http://localhost:${PORT}/sites/site-apex-cloud-systems-seed`);
     console.log(` - Gemini API Key:     ${Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'Configured in .env' : 'Not set (using built-in 1000-word engine)'}`);
     console.log(` - Database:           ${Boolean(process.env.MONGODB_URI) ? 'MongoDB Atlas (Connected)' : 'Local File Fallback (/data)'}`);
-    console.log(` - Auth System:        Enabled (Email/Password, Tokens & Ownership)`);
+    console.log(` - Auth & Security:    Helmet, Rate Limiting, Zod Validation, Ownership Guardrails`);
+    console.log(` - Real-Time Engine:   Async Job Tracker + Server-Sent Events (SSE)`);
+    console.log(` - Expiration Policy:  Non-permanent 24-hour TTL with soft-delete undelete`);
     console.log(`=======================================================`);
     await seedDefaultProjectIfEmpty();
+    await cleanupExpiredProjects();
   });
 }
 

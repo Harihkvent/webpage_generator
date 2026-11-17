@@ -171,13 +171,14 @@ function generateAuthorAvatarSvg(authorName, brandColor) {
 }
 
 // Read all projects
-async function getAllProjects() {
+async function getAllProjects(includeDeleted = false) {
   await connectDB();
   await syncFromLocalIfEmpty();
 
   if (isDbConnected()) {
     try {
-      const docs = await Project.find({}).sort({ updatedAt: -1, createdAt: -1 }).lean();
+      const query = includeDeleted ? {} : { isDeleted: { $ne: true } };
+      const docs = await Project.find(query).sort({ updatedAt: -1, createdAt: -1 }).lean();
       return docs.map(doc => {
         const { _id, __v, ...proj } = doc;
         return proj;
@@ -187,18 +188,21 @@ async function getAllProjects() {
     }
   }
 
-  return getFileProjects();
+  const fileProjects = getFileProjects();
+  if (includeDeleted) return fileProjects;
+  return fileProjects.filter(p => !p.isDeleted);
 }
 
 // Get single project
-async function getProjectById(id) {
+async function getProjectById(id, includeDeleted = true) {
   if (!id) return null;
   await connectDB();
   await syncFromLocalIfEmpty();
 
   if (isDbConnected()) {
     try {
-      const doc = await Project.findOne({ id }).lean();
+      const query = includeDeleted ? { id } : { id, isDeleted: { $ne: true } };
+      const doc = await Project.findOne(query).lean();
       if (doc) {
         const { _id, __v, ...proj } = doc;
         return proj;
@@ -210,18 +214,25 @@ async function getProjectById(id) {
   }
 
   const projects = getFileProjects();
-  return projects.find(p => p.id === id) || null;
+  const found = projects.find(p => p.id === id);
+  if (!found) return null;
+  if (!includeDeleted && found.isDeleted) return null;
+  return found;
 }
 
 // Get projects belonging to a specific user
-async function getProjectsByOwner(ownerId) {
+async function getProjectsByOwner(ownerId, status = 'active') {
   if (!ownerId) return [];
   await connectDB();
   await syncFromLocalIfEmpty();
 
   if (isDbConnected()) {
     try {
-      const docs = await Project.find({ ownerId }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+      const query = { ownerId };
+      if (status === 'active') query.isDeleted = { $ne: true };
+      if (status === 'deleted') query.isDeleted = true;
+
+      const docs = await Project.find(query).sort({ updatedAt: -1, createdAt: -1 }).lean();
       return docs.map(doc => {
         const { _id, __v, ...proj } = doc;
         return proj;
@@ -232,7 +243,12 @@ async function getProjectsByOwner(ownerId) {
   }
 
   const projects = getFileProjects();
-  return projects.filter(p => p.ownerId === ownerId);
+  return projects.filter(p => {
+    if (p.ownerId !== ownerId) return false;
+    if (status === 'active') return !p.isDeleted;
+    if (status === 'deleted') return p.isDeleted === true;
+    return true;
+  });
 }
 
 // Sanitize SVG inputs
@@ -270,12 +286,23 @@ async function saveProject(project) {
     project.createdAt = project.updatedAt;
   }
 
+  // Preserve permanent demo sites
+  if (project.id === 'site-apex-cloud-systems-seed' || project.isPermanent) {
+    project.isPermanent = true;
+    project.expiresAt = null;
+  } else if (!project.expiresAt) {
+    // Non-permanent campaign: expires after 24 hours (TTL)
+    project.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  project.isDeleted = Boolean(project.isDeleted);
+
   if (isDbConnected()) {
     try {
       await Project.findOneAndUpdate(
         { id: project.id },
         { $set: project },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
       );
       // Backup to local file storage
       const fileProjects = getFileProjects();
@@ -308,55 +335,270 @@ async function saveProject(project) {
   return project;
 }
 
-// Delete project with owner authorization check
+// Soft-Delete project with owner authorization check
 async function deleteProject(id, requestingUserId = null) {
   await connectDB();
 
-  if (isDbConnected()) {
-    try {
-      const project = await Project.findOne({ id });
-      if (!project) {
-        return { success: false, error: 'Project not found' };
-      }
-
-      if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId) {
-        return { success: false, error: 'Unauthorized: You can only delete your own hosted sites.' };
-      }
-
-      await Project.deleteOne({ id });
-
-      // Keep local file in sync
-      const fileProjects = getFileProjects().filter(p => p.id !== id);
-      saveFileProjects(fileProjects);
-
-      return { success: true };
-    } catch (err) {
-      console.warn('[MongoDB] deleteProject error (falling back to file):', err.message);
-    }
-  }
-
-  // Fallback to local file storage
-  let fileProjects = getFileProjects();
-  const project = fileProjects.find(p => p.id === id);
+  const project = await getProjectById(id, true);
   if (!project) {
     return { success: false, error: 'Project not found' };
   }
 
-  if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId) {
+  if (project.isPermanent) {
+    return { success: false, error: 'Permanent demo campaigns cannot be deleted.' };
+  }
+
+  if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId && project.ownerId !== 'usr_demo_creator') {
     return { success: false, error: 'Unauthorized: You can only delete your own hosted sites.' };
   }
 
-  fileProjects = fileProjects.filter(p => p.id !== id);
-  saveFileProjects(fileProjects);
-  return { success: true };
+  project.isDeleted = true;
+  project.deletedAt = new Date().toISOString();
+  await saveProject(project);
+
+  return { success: true, message: 'Hosted site moved to trash. You can undelete it within 24 hours.' };
+}
+
+// Undelete / Restore soft-deleted project
+async function undeleteProject(id, requestingUserId = null) {
+  await connectDB();
+
+  const project = await getProjectById(id, true);
+  if (!project) {
+    return { success: false, error: 'Project not found' };
+  }
+
+  if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId && project.ownerId !== 'usr_demo_creator') {
+    return { success: false, error: 'Unauthorized: You can only restore your own hosted sites.' };
+  }
+
+  if (!project.isDeleted) {
+    return { success: false, error: 'This site is not deleted.' };
+  }
+
+  project.isDeleted = false;
+  project.deletedAt = null;
+
+  // Extend expiration for restored campaign (another 24h)
+  if (!project.isPermanent) {
+    project.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  await saveProject(project);
+
+  return { success: true, message: 'Hosted site restored successfully.', project };
+}
+
+// Background cleaner: permanently purges expired campaigns (TTL 24h) and trash older than 24h
+async function cleanupExpiredProjects() {
+  try {
+    const now = new Date();
+    await connectDB();
+
+    if (isDbConnected()) {
+      // 1. Delete TTL-expired non-permanent projects
+      const expiredResult = await Project.deleteMany({
+        isPermanent: { $ne: true },
+        expiresAt: { $lt: now.toISOString(), $ne: null }
+      });
+
+      // 2. Delete projects in trash for > 24 hours
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const trashResult = await Project.deleteMany({
+        isDeleted: true,
+        deletedAt: { $lt: oneDayAgo }
+      });
+
+      if (expiredResult.deletedCount > 0 || trashResult.deletedCount > 0) {
+        console.log(`[Storage Cleanup] Purged ${expiredResult.deletedCount} expired and ${trashResult.deletedCount} trash projects.`);
+      }
+    }
+
+    // Sync file fallback
+    let fileProjects = getFileProjects();
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const filtered = fileProjects.filter(p => {
+      if (p.isPermanent || p.id === 'site-apex-cloud-systems-seed') return true;
+      if (p.expiresAt && new Date(p.expiresAt) < now) return false;
+      if (p.isDeleted && p.deletedAt && p.deletedAt < oneDayAgo) return false;
+      return true;
+    });
+
+    if (filtered.length !== fileProjects.length) {
+      saveFileProjects(filtered);
+    }
+  } catch (err) {
+    console.warn('[Storage Cleanup] Notice:', err.message);
+  }
+}
+
+// Update project branding & metadata
+async function updateProject(id, updates = {}, requestingUserId = null) {
+  const project = await getProjectById(id);
+  if (!project) {
+    return { success: false, error: 'Project not found' };
+  }
+
+  if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId && project.ownerId !== 'usr_demo_creator') {
+    return { success: false, error: 'Unauthorized: You can only update your own hosted sites.' };
+  }
+
+  if (updates.companyName && updates.companyName.trim()) {
+    project.companyName = updates.companyName.trim();
+  }
+
+  if (updates.brandColor && updates.brandColor.trim()) {
+    project.brandColor = updates.brandColor.trim();
+  }
+
+  if (updates.logoUrl !== undefined) {
+    project.logoUrl = updates.logoUrl.trim() || generateMonogramSvg(project.companyName, project.brandColor);
+  }
+
+  // Update author profile
+  if (updates.authorName || updates.authorRole || updates.authorBio || updates.authorAvatar) {
+    project.author = {
+      name: updates.authorName ? updates.authorName.trim() : (project.author?.name || `${project.companyName} Team`),
+      role: updates.authorRole ? updates.authorRole.trim() : (project.author?.role || 'Contributor'),
+      bio: updates.authorBio ? updates.authorBio.trim() : (project.author?.bio || ''),
+      avatar: updates.authorAvatar ? updates.authorAvatar.trim() : (project.author?.avatar || generateAuthorAvatarSvg(project.author?.name, project.brandColor))
+    };
+  }
+
+  project.updatedAt = new Date().toISOString();
+  await saveProject(project);
+  return { success: true, project };
+}
+
+// Update a specific article in a project (WYSIWYG / Content Editor)
+async function updateArticle(projectId, articleSlug, articleUpdates = {}, requestingUserId = null) {
+  const project = await getProjectById(projectId);
+  if (!project) {
+    return { success: false, error: 'Project not found' };
+  }
+
+  if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId && project.ownerId !== 'usr_demo_creator') {
+    return { success: false, error: 'Unauthorized: You can only edit articles on your own hosted sites.' };
+  }
+
+  if (!Array.isArray(project.articles)) {
+    return { success: false, error: 'No articles found in this campaign' };
+  }
+
+  const articleIndex = project.articles.findIndex(a => a.slug === articleSlug);
+  if (articleIndex === -1) {
+    return { success: false, error: 'Article not found' };
+  }
+
+  const existing = project.articles[articleIndex];
+
+  // Merge updates
+  const updatedArticle = {
+    ...existing,
+    title: articleUpdates.title ? articleUpdates.title.trim() : existing.title,
+    summary: articleUpdates.summary !== undefined ? articleUpdates.summary.trim() : existing.summary,
+    keyTakeaways: Array.isArray(articleUpdates.keyTakeaways) ? articleUpdates.keyTakeaways : existing.keyTakeaways,
+    sections: Array.isArray(articleUpdates.sections) ? articleUpdates.sections : existing.sections,
+    faqs: Array.isArray(articleUpdates.faqs) ? articleUpdates.faqs : existing.faqs,
+    readingTime: articleUpdates.readingTime || existing.readingTime,
+    updatedAt: new Date().toISOString()
+  };
+
+  // Recalculate word count dynamically
+  let allText = `${updatedArticle.title} ${updatedArticle.summary} ` +
+    (updatedArticle.keyTakeaways || []).join(' ') + ' ' +
+    (updatedArticle.sections || []).map(s => `${s.h2 || ''} ${(s.subsections || []).map(sub => `${sub.h3 || ''} ${(sub.paragraphs || []).join(' ')}`).join(' ')}`).join(' ') + ' ' +
+    (updatedArticle.faqs || []).map(f => `${f.q || ''} ${f.a || ''}`).join(' ');
+
+  const clean = allText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  updatedArticle.wordCount = clean ? clean.split(/\s+/).length : existing.wordCount;
+
+  project.articles[articleIndex] = updatedArticle;
+  project.updatedAt = new Date().toISOString();
+
+  await saveProject(project);
+  return { success: true, article: updatedArticle, project };
+}
+
+// Replace/Regenerate an article in a project
+async function replaceArticleInProject(projectId, articleSlug, newArticle, requestingUserId = null) {
+  const project = await getProjectById(projectId);
+  if (!project) {
+    return { success: false, error: 'Project not found' };
+  }
+
+  if (project.ownerId && requestingUserId && project.ownerId !== requestingUserId && project.ownerId !== 'usr_demo_creator') {
+    return { success: false, error: 'Unauthorized: You can only regenerate articles on your own hosted sites.' };
+  }
+
+  const articleIndex = (project.articles || []).findIndex(a => a.slug === articleSlug);
+  if (articleIndex === -1) {
+    return { success: false, error: 'Article not found' };
+  }
+
+  project.articles[articleIndex] = newArticle;
+  project.updatedAt = new Date().toISOString();
+  await saveProject(project);
+  return { success: true, article: newArticle, project };
+}
+
+// Paginated & Filtered project listing
+async function getProjectsPaginated({ page = 1, limit = 12, search = '', ownerId = null, status = 'active' } = {}) {
+  const numPage = Math.max(1, parseInt(page, 10) || 1);
+  const numLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 12));
+  const skip = (numPage - 1) * numLimit;
+  const cleanSearch = (search || '').trim().toLowerCase();
+
+  let all = [];
+  if (ownerId) {
+    all = await getProjectsByOwner(ownerId, status);
+  } else {
+    // Public directory only shows non-deleted active campaigns
+    all = await getAllProjects(status === 'all' || status === 'deleted');
+    if (status === 'deleted') {
+      all = all.filter(p => p.isDeleted === true);
+    } else if (status === 'active') {
+      all = all.filter(p => !p.isDeleted);
+    }
+  }
+
+  // Filter by search query if provided
+  if (cleanSearch) {
+    all = all.filter(p => {
+      const matchCompany = (p.companyName || '').toLowerCase().includes(cleanSearch);
+      const matchTopic = Array.isArray(p.topics) && p.topics.some(t => (t || '').toLowerCase().includes(cleanSearch));
+      const matchAuthor = p.author && ((p.author.name || '').toLowerCase().includes(cleanSearch) || (p.author.role || '').toLowerCase().includes(cleanSearch));
+      return matchCompany || matchTopic || matchAuthor;
+    });
+  }
+
+  const total = all.length;
+  const totalPages = Math.ceil(total / numLimit) || 1;
+  const paginated = all.slice(skip, skip + numLimit);
+
+  return {
+    projects: paginated,
+    pagination: {
+      total,
+      page: numPage,
+      limit: numLimit,
+      totalPages
+    }
+  };
 }
 
 module.exports = {
   getAllProjects,
   getProjectById,
   getProjectsByOwner,
+  getProjectsPaginated,
   saveProject,
+  updateProject,
+  updateArticle,
+  replaceArticleInProject,
   deleteProject,
+  undeleteProject,
+  cleanupExpiredProjects,
   getContrastColor,
   adjustBrightness,
   generateMonogramSvg,
